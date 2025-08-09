@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pydantic schemas for Computer Inventory System API
 """
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -297,3 +297,24 @@ class AuditLogResponse(BaseSchema):
 
 # Update forward references
 AssetWithControllers.model_rebuild()
+
+# 1Password Integration Schemas
+class CredentialCreate(BaseModel):
+    """Create credentials for an asset"""
+    mgmt_credentials: Optional[Dict[str, str]] = None
+    os_credentials: Optional[Dict[str, str]] = None
+
+class CredentialResponse(BaseModel):
+    """Credential response"""
+    asset_id: UUID
+    has_credentials: bool
+    credential_reference: Optional[str] = None
+    last_updated: Optional[datetime] = None
+
+class OnePasswordHealth(BaseModel):
+    """1Password Connect health status"""
+    enabled: bool
+    connected: bool
+    vault_accessible: bool
+    last_check: datetime
+    error: Optional[str] = None

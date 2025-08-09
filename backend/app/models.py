@@ -1,4 +1,4 @@
-"""
+﻿"""
 SQLAlchemy models for Computer Inventory System
 """
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, CheckConstraint
@@ -169,3 +169,4 @@ audit_resource_idx = Index('ix_audit_resource', AuditLog.resource_type, AuditLog
 # Time-based index for audit logs
 audit_time_idx = Index('ix_audit_time', AuditLog.timestamp.desc())
 """
+

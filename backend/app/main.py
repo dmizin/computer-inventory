@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from .config import get_settings
 from .database import init_db, check_db_connection
-from .routers import assets, mgmt, health
+from .routers import assets, mgmt, health, credentials
 
 # Configure logging
 logging.basicConfig(
@@ -155,6 +155,8 @@ app.include_router(
     prefix="/api/v1/assets",
     tags=["Management Controllers"]
 )
+
+app.include_router(credentials.router)
 
 
 # Root endpoint
