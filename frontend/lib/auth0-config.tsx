@@ -1,8 +1,8 @@
-// lib/auth0-config.ts
+// lib/auth0-config.tsx
 import React from 'react'
-import { UserProvider } from '@auth0/nextjs-auth0/client';
+import { UserProvider } from '@auth0/nextjs-auth0/client'
 
-export const isAuthEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true';
+export const isAuthEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true'
 
 // Mock user for development when auth is disabled
 export const mockUser = {
@@ -12,7 +12,7 @@ export const mockUser = {
   picture: '/api/placeholder/avatar',
   email_verified: true,
   updated_at: new Date().toISOString(),
-};
+}
 
 // Auth0 configuration
 export const auth0Config = {
@@ -23,11 +23,11 @@ export const auth0Config = {
   secret: process.env.AUTH0_SECRET || '',
   audience: process.env.AUTH0_AUDIENCE || '',
   scope: process.env.AUTH0_SCOPE || 'openid profile email',
-};
+}
 
 // Check if Auth0 is properly configured
 export const isAuth0Configured = () => {
-  if (!isAuthEnabled) return true; // Always valid when auth is disabled
+  if (!isAuthEnabled) return true // Always valid when auth is disabled
 
   return !!(
     auth0Config.domain &&
@@ -35,15 +35,15 @@ export const isAuth0Configured = () => {
     auth0Config.clientSecret &&
     auth0Config.secret &&
     auth0Config.baseUrl
-  );
-};
+  )
+}
 
 // Conditional Auth Provider wrapper
 export function ConditionalAuthProvider({ children }: { children: React.ReactNode }) {
   if (isAuthEnabled) {
-    return React.createElement(UserProvider, null, children)
+    return <UserProvider>{children}</UserProvider>
   }
 
   // Return children without auth provider when auth is disabled
-  return React.createElement(React.Fragment, null, children)
+  return <>{children}</>
 }

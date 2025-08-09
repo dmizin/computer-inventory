@@ -1,4 +1,28 @@
 ﻿/** @type {import('next').NextConfig} */
+
+// Environment variable validation
+const isAuthEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true'
+
+if (isAuthEnabled) {
+  const requiredVars = [
+    'AUTH0_SECRET',
+    'AUTH0_BASE_URL',
+    'AUTH0_ISSUER_BASE_URL',
+    'AUTH0_CLIENT_ID',
+    'AUTH0_CLIENT_SECRET',
+  ]
+
+  const missing = requiredVars.filter(varName => !process.env[varName])
+
+  if (missing.length > 0) {
+    console.warn('⚠️  Auth0 is enabled but missing required environment variables:')
+    missing.forEach(varName => console.warn(`   - ${varName}`))
+    console.warn('   Authentication will not work properly!')
+  }
+} else {
+  console.info('ℹ️  Authentication is disabled for development')
+}
+
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,

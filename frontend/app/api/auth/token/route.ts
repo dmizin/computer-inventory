@@ -1,7 +1,7 @@
 // app/api/auth/token/route.ts
-import { getAccessToken, withApiAuthRequired } from '@auth0/nextjs-auth0';
-import { NextRequest, NextResponse } from 'next/server';
-import { isAuthEnabled } from '@/lib/auth0-config';
+import { getAccessToken, withApiAuthRequired } from '@auth0/nextjs-auth0'
+import { NextRequest, NextResponse } from 'next/server'
+import { isAuthEnabled } from '@/lib/auth0-config'
 
 // Only create the authenticated handler if auth is enabled
 const authenticatedHandler = isAuthEnabled

@@ -1,7 +1,7 @@
 // app/api/auth/[auth0]/route.ts
-import { handleAuth, handleLogin, handleLogout, handleCallback, handleProfile } from '@auth0/nextjs-auth0';
-import { NextRequest, NextResponse } from 'next/server';
-import { isAuthEnabled, auth0Config } from '@/lib/auth0-config';
+import { handleAuth, handleLogin, handleLogout, handleCallback, handleProfile } from '@auth0/nextjs-auth0'
+import { NextRequest, NextResponse } from 'next/server'
+import { isAuthEnabled, auth0Config } from '@/lib/auth0-config'
 
 // Only create handlers if auth is enabled
 if (isAuthEnabled) {
