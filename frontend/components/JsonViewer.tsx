@@ -40,7 +40,7 @@ export default function JsonViewer({
   if (typeof data === 'string') {
     return (
       <span className="text-green-600">
-        "{data}"
+        &ldquo;{data}&rdquo;
       </span>
     )
   }
@@ -93,7 +93,7 @@ interface JsonNodeProps {
   parentKey?: string
 }
 
-function JsonNode({ data, depth, maxDepth, compact, parentKey }: JsonNodeProps) {
+function JsonNode({ data, depth, maxDepth, compact }: JsonNodeProps) {
   const [isExpanded, setIsExpanded] = useState(depth < 2) // Expand first 2 levels by default
 
   // Prevent infinite recursion
@@ -171,7 +171,7 @@ function JsonNode({ data, depth, maxDepth, compact, parentKey }: JsonNodeProps) 
             {keys.map((key) => (
               <div key={key} className="flex items-start">
                 <span className="text-purple-600 mr-2 font-medium min-w-0 break-all">
-                  "{key}":
+                  &ldquo;{key}&rdquo;:
                 </span>
                 <div className="flex-1 min-w-0">
                   <JsonNode

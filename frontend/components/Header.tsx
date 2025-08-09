@@ -13,7 +13,8 @@ import {
   ArrowLeftOnRectangleIcon,
   ChartBarIcon
 } from '@heroicons/react/24/outline'
-import { useAuth, getLoginUrl, getLogoutUrl, canEditAssets, isAuthEnabled } from '@/lib/use-auth'
+import { useAuth, getLoginUrl, getLogoutUrl, canEditAssets } from '@/lib/use-auth'
+import { isAuthEnabled } from '@/lib/auth0-config'
 import { clsx } from 'clsx'
 
 const navigation = [

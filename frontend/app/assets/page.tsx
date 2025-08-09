@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { PlusIcon } from '@heroicons/react/24/outline'
 import { AssetFilters, SortConfig } from '@/lib/types'
@@ -15,7 +14,6 @@ import { useDebounce } from '@/lib/use-debounce'
 export default function AssetsPage() {
   const { user } = useAuth()
   const canEdit = canEditAssets(user)
-  const searchParams = useSearchParams()
 
   // State management
   const [searchTerm, setSearchTerm] = useState('')
@@ -48,7 +46,7 @@ export default function AssetsPage() {
     cacheKey,
     async () => {
       const cleanParams = Object.fromEntries(
-        Object.entries(apiParams).filter(([_, value]) => value !== undefined)
+        Object.entries(apiParams).filter(([, value]) => value !== undefined)
       )
       return await apiClient.getAssets(cleanParams)
     },
@@ -164,7 +162,7 @@ export default function AssetsPage() {
             Showing {data.data.length} of {data.meta.total} assets
             {debouncedSearch && (
               <span className="ml-1">
-                for "<strong>{debouncedSearch}</strong>"
+                for &ldquo;<strong>{debouncedSearch}</strong>&rdquo;
               </span>
             )}
           </p>

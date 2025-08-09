@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import useSWR from 'swr'
@@ -14,14 +13,10 @@ import {
   ServerIcon,
   DevicePhoneMobileIcon,
   CircleStackIcon,
-  CpuChipIcon,
-  CircleStackIcon as MemoryIcon,
-  RectangleGroupIcon,
-  WifiIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 import { apiClient, swrConfig } from '@/lib/api-client'
-import { AssetWithControllers, AssetType, ASSET_STATUSES, MANAGEMENT_CONTROLLER_TYPES } from '@/lib/types'
+import { AssetType, ASSET_STATUSES, MANAGEMENT_CONTROLLER_TYPES } from '@/lib/types'
 import { useAuth, canEditAssets } from '@/lib/use-auth'
 import JsonViewer from '@/components/JsonViewer'
 import { clsx } from 'clsx'
@@ -32,7 +27,7 @@ export default function AssetDetailPage() {
   const canEdit = canEditAssets(user)
   const assetId = params.id as string
 
-  const { data: asset, error, isLoading, mutate } = useSWR(
+  const { data: asset, error, isLoading } = useSWR(
     assetId ? `asset-${assetId}` : null,
     async () => await apiClient.getAsset(assetId),
     swrConfig

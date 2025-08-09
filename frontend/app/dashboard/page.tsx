@@ -32,8 +32,34 @@ export default function DashboardPage() {
   const { data: assetsData, error, isLoading } = useSWR(
     'dashboard-assets',
     async () => {
-      // Fetch a large number to get all assets for stats
-      return await apiClient.getAssets({ per_page: 1000 })
+      // Fetch assets in batches due to backend limit of 100 per request
+      const allAssets = []
+      let page = 1
+      const perPage = 100
+
+      while (true) {
+        const skip = (page - 1) * perPage
+        const batch = await apiClient.getAssets({
+          per_page: perPage,
+          page: page
+        })
+
+        allAssets.push(...batch.data)
+
+        // If we got fewer assets than requested, we've reached the end
+        if (batch.data.length < perPage) {
+          break
+        }
+
+        page++
+
+        // Safety break to prevent infinite loops (max 10 pages = 1000 assets)
+        if (page > 10) {
+          break
+        }
+      }
+
+      return { data: allAssets }
     },
     swrConfig
   )

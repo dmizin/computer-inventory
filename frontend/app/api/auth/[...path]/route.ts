@@ -145,7 +145,7 @@ export const PUT = createHandler('PUT')
 export const DELETE = createHandler('DELETE')
 
 // Handle OPTIONS for CORS
-export async function OPTIONS(request: NextRequest) {
+export async function OPTIONS(_request: NextRequest) {
   return new NextResponse(null, {
     status: 200,
     headers: {

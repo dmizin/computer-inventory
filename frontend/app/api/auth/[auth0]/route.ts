@@ -18,7 +18,7 @@ if (isAuthEnabled) {
     }),
 
     callback: handleCallback({
-      afterCallback: async (req, session, state) => {
+      afterCallback: async (_req, session, _state) => {
         // Custom logic after successful login
         console.log('User logged in:', session.user.email);
         return session;
@@ -65,7 +65,7 @@ if (isAuthEnabled) {
     }
   }
 
-  export async function POST(request: NextRequest) {
+  export async function POST(_request: NextRequest) {
     return NextResponse.json(
       { error: 'Authentication is disabled in development mode' },
       { status: 400 }

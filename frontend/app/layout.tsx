@@ -11,7 +11,11 @@ export const metadata: Metadata = {
   description: 'Track and manage computer assets, hardware specifications, and management controllers',
   keywords: ['inventory', 'assets', 'computers', 'hardware', 'management'],
   authors: [{ name: 'Computer Inventory System' }],
-  viewport: 'width=device-width, initial-scale=1',
+}
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({

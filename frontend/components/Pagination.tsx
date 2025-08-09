@@ -37,7 +37,7 @@ export default function Pagination({
     } else {
       // Calculate which pages to show
       let startPage = Math.max(1, currentPage - Math.floor(showPages / 2))
-      let endPage = Math.min(totalPages, startPage + showPages - 1)
+      const endPage = Math.min(totalPages, startPage + showPages - 1)
 
       // Adjust if we're near the end
       if (endPage - startPage < showPages - 1) {

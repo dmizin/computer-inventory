@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import {
@@ -21,7 +20,7 @@ import { clsx } from 'clsx'
 interface AssetTableProps {
   assets: Asset[]
   loading?: boolean
-  onSort?: (config: SortConfig) => void
+  onSort?: (sortConfig: SortConfig) => void
   sortConfig?: SortConfig
   onEdit?: (asset: Asset) => void
   onDelete?: (assetId: string) => void

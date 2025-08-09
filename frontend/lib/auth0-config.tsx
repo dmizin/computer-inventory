@@ -9,7 +9,7 @@ export const mockUser = {
   sub: 'dev-user',
   name: 'Development User',
   email: 'dev@localhost',
-  picture: '/api/placeholder/avatar',
+  picture: 'https://ui-avatars.com/api/?name=Dev+User&background=3b82f6&color=ffffff',
   email_verified: true,
   updated_at: new Date().toISOString(),
 }

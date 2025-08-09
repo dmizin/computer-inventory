@@ -139,19 +139,18 @@ export interface SortConfig {
 export interface AssetTableProps {
   assets: Asset[];
   loading?: boolean;
-  onSort?: (config: SortConfig) => void;
+  onSort?: (sortConfig: SortConfig) => void;
   sortConfig?: SortConfig;
 }
 
 export interface AssetDetailProps {
-  asset: AssetWithControllers;
+  asset: Asset;
   onEdit?: (asset: Asset) => void;
   onDelete?: (assetId: string) => void;
   canEdit?: boolean;
 }
 
 export interface SearchBarProps {
-  value?: string;
   onChange: (value: string) => void;
   onFilter?: (filters: AssetFilters) => void;
   filters?: AssetFilters;
