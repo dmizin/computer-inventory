@@ -37,7 +37,6 @@ def _build_asset_with_controllers_response(asset, controllers) -> schemas.AssetW
     response.has_onepassword_secret = bool(asset.onepassword_secret_id)
     return response
 
-
 @router.post("/upsert", response_model=schemas.UpsertResponse, tags=["Assets"])
 async def upsert_asset(
     *,
@@ -56,69 +55,89 @@ async def upsert_asset(
     Returns the asset and whether it was created or updated.
     Automatically creates/updates 1Password secret if enabled.
     """
-    # Extract credentials before CRUD operations (since they're excluded from asset model)
-    mgmt_credentials = asset_in.mgmt_credentials
-    os_credentials = asset_in.os_credentials
+    try:
+        # Extract credentials before CRUD operations (since they're excluded from asset model)
+        mgmt_credentials = asset_in.mgmt_credentials
+        os_credentials = asset_in.os_credentials
 
-    # Perform upsert operation
-    asset, created = crud.asset_crud.upsert(db=db, obj_in=asset_in)
+        # Perform upsert operation
+        asset, created = crud.asset_crud.upsert(db=db, obj_in=asset_in)
 
-    # Log the operation
-    action = "CREATE" if created else "UPDATE"
-    api_key_id = api_key.id if api_key else None
-    crud.log_asset_change(
-        db=db,
-        action=action,
-        asset=asset,
-        changes=asset_in.model_dump(),
-        api_key_id=api_key_id
-    )
+        # Log the operation
+        action = "CREATE" if created else "UPDATE"
+        api_key_id = api_key.id if api_key else None
+        crud.log_asset_change(
+            db=db,
+            action=action,
+            asset=asset,
+            changes=asset_in.model_dump(),
+            api_key_id=api_key_id
+        )
 
-    logger.info(f"Asset upsert completed: {action} {asset.hostname}")
+        logger.info(f"Asset upsert completed: {action} {asset.hostname}")
 
-    # Handle 1Password secret creation/update automatically
-    settings = get_settings()
-    if settings.onepassword_enabled:
-        try:
-            # Get management controller if exists
-            mgmt_controller = db.query(ManagementController).filter(
-                ManagementController.asset_id == asset.id
-            ).first()
+        # Handle 1Password secret creation/update automatically
+        settings = get_settings()
+        if settings.onepassword_enabled:
+            try:
+                # Get management controller if exists
+                mgmt_controller = db.query(ManagementController).filter(
+                    ManagementController.asset_id == asset.id
+                ).first()
 
-            # Create OnePassword service
-            op_service = OnePasswordService(settings)
+                # Create OnePassword service
+                op_service = OnePasswordService(settings)
 
-            # Create/update 1Password secret (uses defaults if credentials not provided)
-            secret_id = await op_service.create_or_update_asset_secret(
-                asset=asset,
-                mgmt_controller=mgmt_controller,
-                mgmt_credentials=mgmt_credentials,
-                os_credentials=os_credentials
-            )
+                # Create/update 1Password secret (uses defaults if credentials not provided)
+                secret_id = await op_service.create_or_update_asset_secret(
+                    asset=asset,
+                    mgmt_controller=mgmt_controller,
+                    mgmt_credentials=mgmt_credentials,
+                    os_credentials=os_credentials
+                )
 
-            # Update asset with 1Password secret reference
-            if secret_id:
-                asset.onepassword_secret_id = secret_id
-                vault_id = await op_service.get_vault_id()
-                asset.onepassword_vault_id = vault_id
+                # FIXED: Update asset with 1Password secret reference and properly commit
+                if secret_id:
+                    # Get vault ID
+                    vault_id = await op_service.get_vault_id()
 
-                db.add(asset)
-                db.commit()
-                db.refresh(asset)
+                    # Update the asset with 1Password references
+                    asset.onepassword_secret_id = secret_id
+                    asset.onepassword_vault_id = vault_id
 
-                logger.info(f"Created/updated 1Password secret for asset {asset.hostname}")
+                    # Explicitly mark the object as modified and commit
+                    db.add(asset)
+                    db.commit()
+                    db.refresh(asset)
 
-        except OnePasswordError as e:
-            logger.warning(f"Failed to create/update 1Password secret for asset {asset.hostname}: {e}")
+                    logger.info(f"Updated asset {asset.hostname} with 1Password secret ID: {secret_id}")
+                else:
+                    logger.warning(f"No secret ID returned for asset {asset.hostname}")
 
-        except Exception as e:
-            logger.error(f"Unexpected error with 1Password integration for asset {asset.hostname}: {e}")
+            except OnePasswordError as e:
+                # Log the error but don't fail the asset upsert
+                logger.warning(f"Failed to create/update 1Password secret for asset {asset.hostname}: {e}")
+                # Don't raise - asset creation should succeed even if 1Password fails
 
-    return schemas.UpsertResponse(
-        asset=_build_asset_response(asset),
-        created=created
-    )
+            except Exception as e:
+                # Log any other errors but don't fail the asset upsert
+                logger.error(f"Unexpected error with 1Password integration for asset {asset.hostname}: {e}")
+                # Don't raise - asset creation should succeed even if 1Password fails
 
+        # Build the response with properly populated 1Password fields
+        return schemas.UpsertResponse(
+            asset=_build_asset_response(asset),
+            created=created
+        )
+
+    except Exception as e:
+        logger.error(f"Error during asset upsert: {e}")
+        # Make sure to rollback the database transaction on error
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upsert asset: {str(e)}"
+        )
 
 @router.get("", response_model=schemas.AssetListResponse, tags=["Assets"])
 async def list_assets(

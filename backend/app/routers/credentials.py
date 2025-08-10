@@ -71,14 +71,14 @@ async def create_asset_credentials(
             detail=f"1Password error: {str(e)}"
         )
 
-
-@router.get("/assets/{asset_id}/credentials", response_model=Optional[Dict[str, Any]])
-async def get_asset_credentials(
+@router.post("/assets/{asset_id}/credentials", response_model=CredentialResponse)
+async def create_asset_credentials(
     asset_id: UUID,
+    credentials: CredentialCreate,
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_api_key)
 ):
-    """Get credentials for an asset from 1Password"""
+    """Create or update credentials for an asset in 1Password"""
     settings = get_settings()
 
     if not settings.onepassword_enabled:
@@ -87,22 +87,44 @@ async def get_asset_credentials(
             detail="1Password integration is not enabled"
         )
 
-    # Verify asset exists
+    # Get asset
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
+    # Get management controller if exists
+    mgmt_controller = db.query(ManagementController).filter(
+        ManagementController.asset_id == asset_id
+    ).first()
+
     try:
         op_service = OnePasswordService(settings)
-        credentials = await op_service.get_asset_credentials(asset_id)
-        return credentials
+        secret_id = await op_service.create_or_update_asset_secret(
+            asset=asset,
+            mgmt_controller=mgmt_controller,
+            mgmt_credentials=credentials.mgmt_credentials,
+            os_credentials=credentials.os_credentials
+        )
+
+        # FIXED: Update asset with correct field name
+        if secret_id:
+            vault_id = await op_service.get_vault_id()
+            asset.onepassword_secret_id = secret_id  # FIXED: Was using credential_reference
+            asset.onepassword_vault_id = vault_id
+            db.commit()
+
+        return CredentialResponse(
+            asset_id=asset_id,
+            has_credentials=bool(secret_id),
+            credential_reference=secret_id,
+            last_updated=asset.updated_at
+        )
 
     except OnePasswordError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"1Password error: {str(e)}"
         )
-
 
 @router.get("/health/onepassword", response_model=OnePasswordHealth)
 async def check_onepassword_health():
