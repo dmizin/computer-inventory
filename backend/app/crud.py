@@ -95,7 +95,9 @@ class CRUDAsset:
 
     def create(self, db: Session, *, obj_in: schemas.AssetCreate) -> models.Asset:
         """Create new asset"""
-        db_obj = models.Asset(**obj_in.model_dump())
+        # Exclude credential fields that aren't part of the Asset model
+        asset_data = obj_in.model_dump(exclude={'mgmt_credentials', 'os_credentials'})
+        db_obj = models.Asset(**asset_data)
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
@@ -110,7 +112,8 @@ class CRUDAsset:
         obj_in: schemas.AssetUpdate
     ) -> models.Asset:
         """Update existing asset"""
-        update_data = obj_in.model_dump(exclude_unset=True)
+        # Exclude credential fields
+        update_data = obj_in.model_dump(exclude_unset=True, exclude={'mgmt_credentials', 'os_credentials'})
 
         for field, value in update_data.items():
             if hasattr(db_obj, field):
