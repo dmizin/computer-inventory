@@ -45,6 +45,20 @@ class Settings(BaseSettings):
     default_page_size: int = 20
     max_page_size: int = 100
 
+    # 1Password Connect Integration
+    onepassword_enabled: bool = Field(False, description="Enable 1Password Connect integration")
+    op_connect_host: Optional[str] = Field(None, description="1Password Connect server URL")
+    op_api_token: Optional[str] = Field(None, description="1Password Connect API token")
+    op_vault_name: str = Field("Computer-Inventory", description="1Password vault name")
+    op_secret_template: str = Field("asset-{asset_id}", description="Template for secret names")
+
+    # 1Password connection testing
+    op_connection_timeout: int = Field(10, description="Connection timeout in seconds")
+
+    # 1Password SSL Configuration - ADDED FOR INTERNAL CA SUPPORT
+    op_ssl_verify: bool = Field(True, description="Verify SSL certificates for 1Password Connect")
+    op_ssl_cert_file: Optional[str] = Field(None, description="Path to custom CA certificate file for 1Password Connect")
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def validate_cors_origins(cls, v):
@@ -87,16 +101,6 @@ class Settings(BaseSettings):
         env_file_encoding='utf-8',
         case_sensitive=False
     )
-
-    # 1Password Connect Integration
-    onepassword_enabled: bool = Field(False, description="Enable 1Password Connect integration")
-    op_connect_host: Optional[str] = Field(None, description="1Password Connect server URL")
-    op_api_token: Optional[str] = Field(None, description="1Password Connect API token")
-    op_vault_name: str = Field("Computer-Inventory", description="1Password vault name")
-    op_secret_template: str = Field("asset-{asset_id}", description="Template for secret names")
-
-    # 1Password connection testing
-    op_connection_timeout: int = Field(10, description="Connection timeout in seconds")
 
 
 # Global settings instance

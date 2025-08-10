@@ -10,11 +10,32 @@ import logging
 from ..config import get_settings
 from ..database import get_db
 from ..auth import verify_api_key_dependency, optional_api_key
-from ..models import ApiKey
+from ..models import ApiKey, ManagementController
+from ..services import OnePasswordService, OnePasswordError
 from .. import schemas, crud
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _build_asset_response(asset) -> schemas.AssetResponse:
+    """Helper to build AssetResponse with 1Password fields populated"""
+    response = schemas.AssetResponse.model_validate(asset)
+    response.has_onepassword_secret = bool(asset.onepassword_secret_id)
+    return response
+
+
+def _build_asset_with_controllers_response(asset, controllers) -> schemas.AssetWithControllers:
+    """Helper to build AssetWithControllers response with 1Password fields populated"""
+    response = schemas.AssetWithControllers(
+        **asset.__dict__,
+        management_controllers=[
+            schemas.ManagementControllerResponse.model_validate(controller)
+            for controller in controllers
+        ]
+    )
+    response.has_onepassword_secret = bool(asset.onepassword_secret_id)
+    return response
 
 
 @router.post("/upsert", response_model=schemas.UpsertResponse, tags=["Assets"])
@@ -33,35 +54,70 @@ async def upsert_asset(
     3. Match by hostname (fallback)
 
     Returns the asset and whether it was created or updated.
+    Automatically creates/updates 1Password secret if enabled.
     """
-    try:
-        # Perform upsert operation
-        asset, created = crud.asset_crud.upsert(db=db, obj_in=asset_in)
+    # Extract credentials before CRUD operations (since they're excluded from asset model)
+    mgmt_credentials = asset_in.mgmt_credentials
+    os_credentials = asset_in.os_credentials
 
-        # Log the operation
-        action = "CREATE" if created else "UPDATE"
-        api_key_id = api_key.id if api_key else None
-        crud.log_asset_change(
-            db=db,
-            action=action,
-            asset=asset,
-            changes=asset_in.model_dump(),
-            api_key_id=api_key_id
-        )
+    # Perform upsert operation
+    asset, created = crud.asset_crud.upsert(db=db, obj_in=asset_in)
 
-        logger.info(f"Asset upsert completed: {action} {asset.hostname}")
+    # Log the operation
+    action = "CREATE" if created else "UPDATE"
+    api_key_id = api_key.id if api_key else None
+    crud.log_asset_change(
+        db=db,
+        action=action,
+        asset=asset,
+        changes=asset_in.model_dump(),
+        api_key_id=api_key_id
+    )
 
-        return schemas.UpsertResponse(
-            asset=schemas.AssetResponse.model_validate(asset),
-            created=created
-        )
+    logger.info(f"Asset upsert completed: {action} {asset.hostname}")
 
-    except Exception as e:
-        logger.error(f"Error during asset upsert: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upsert asset: {str(e)}"
-        )
+    # Handle 1Password secret creation/update automatically
+    settings = get_settings()
+    if settings.onepassword_enabled:
+        try:
+            # Get management controller if exists
+            mgmt_controller = db.query(ManagementController).filter(
+                ManagementController.asset_id == asset.id
+            ).first()
+
+            # Create OnePassword service
+            op_service = OnePasswordService(settings)
+
+            # Create/update 1Password secret (uses defaults if credentials not provided)
+            secret_id = await op_service.create_or_update_asset_secret(
+                asset=asset,
+                mgmt_controller=mgmt_controller,
+                mgmt_credentials=mgmt_credentials,
+                os_credentials=os_credentials
+            )
+
+            # Update asset with 1Password secret reference
+            if secret_id:
+                asset.onepassword_secret_id = secret_id
+                vault_id = await op_service.get_vault_id()
+                asset.onepassword_vault_id = vault_id
+
+                db.add(asset)
+                db.commit()
+                db.refresh(asset)
+
+                logger.info(f"Created/updated 1Password secret for asset {asset.hostname}")
+
+        except OnePasswordError as e:
+            logger.warning(f"Failed to create/update 1Password secret for asset {asset.hostname}: {e}")
+
+        except Exception as e:
+            logger.error(f"Unexpected error with 1Password integration for asset {asset.hostname}: {e}")
+
+    return schemas.UpsertResponse(
+        asset=_build_asset_response(asset),
+        created=created
+    )
 
 
 @router.get("", response_model=schemas.AssetListResponse, tags=["Assets"])
@@ -105,7 +161,7 @@ async def list_assets(
         pages = (total + limit - 1) // limit  # Ceiling division
 
         return schemas.AssetListResponse(
-            data=[schemas.AssetResponse.model_validate(asset) for asset in assets],
+            data=[_build_asset_response(asset) for asset in assets],
             meta=schemas.PaginationMeta(
                 total=total,
                 page=(skip // limit) + 1,
@@ -146,13 +202,7 @@ async def get_asset(
     controllers = crud.management_controller_crud.get_by_asset(db=db, asset_id=asset_id)
 
     # Build response with management controllers
-    return schemas.AssetWithControllers(
-        **asset.__dict__,
-        management_controllers=[
-            schemas.ManagementControllerResponse.model_validate(controller)
-            for controller in controllers
-        ]
-    )
+    return _build_asset_with_controllers_response(asset, controllers)
 
 
 @router.patch("/{asset_id}", response_model=schemas.AssetResponse, tags=["Assets"])
@@ -186,6 +236,10 @@ async def update_asset(
         # Update asset
         updated_asset = crud.asset_crud.update(db=db, db_obj=asset, obj_in=asset_in)
 
+        # Handle 1Password secret update - but AssetUpdate doesn't have credential fields
+        # Credentials should be updated via the separate /credentials endpoint
+        # This is just here as a placeholder for future enhancement
+
         # Log the change
         changes = {
             "old": old_values,
@@ -202,7 +256,7 @@ async def update_asset(
 
         logger.info(f"Asset updated: {updated_asset.hostname} (ID: {asset_id})")
 
-        return schemas.AssetResponse.model_validate(updated_asset)
+        return _build_asset_response(updated_asset)
 
     except Exception as e:
         logger.error(f"Error updating asset {asset_id}: {e}")
@@ -223,8 +277,8 @@ async def delete_asset(
     """
     Delete an asset
 
-    - By default, performs soft delete (sets status to 'retired')
-    - Use hard_delete=true to permanently remove from database
+    By default, performs soft delete (sets status to 'retired').
+    Use hard_delete=true to permanently remove from database.
     """
     # Get existing asset
     asset = crud.asset_crud.get(db=db, asset_id=asset_id)
@@ -236,37 +290,27 @@ async def delete_asset(
 
     try:
         if hard_delete:
-            # Log before hard delete
-            api_key_id = api_key.id if api_key else None
-            crud.log_asset_change(
-                db=db,
-                action="DELETE",
-                asset=asset,
-                changes={"hard_delete": True},
-                api_key_id=api_key_id
-            )
-
-            # Perform hard delete
+            # Hard delete from database
             deleted_asset = crud.asset_crud.hard_delete(db=db, asset_id=asset_id)
-            logger.info(f"Asset hard deleted: {asset.hostname} (ID: {asset_id})")
-
+            action = "DELETE"
         else:
-            # Perform soft delete
+            # Soft delete (set status to retired)
             deleted_asset = crud.asset_crud.delete(db=db, asset_id=asset_id)
+            action = "RETIRE"
 
-            # Log the change
-            api_key_id = api_key.id if api_key else None
-            crud.log_asset_change(
-                db=db,
-                action="SOFT_DELETE",
-                asset=deleted_asset,
-                changes={"status": "retired"},
-                api_key_id=api_key_id
-            )
+        # Log the change
+        api_key_id = api_key.id if api_key else None
+        crud.log_asset_change(
+            db=db,
+            action=action,
+            asset=asset,  # Use original asset for logging
+            changes={"hard_delete": hard_delete},
+            api_key_id=api_key_id
+        )
 
-            logger.info(f"Asset soft deleted: {deleted_asset.hostname} (ID: {asset_id})")
+        logger.info(f"Asset {'hard deleted' if hard_delete else 'retired'}: {asset.hostname} (ID: {asset_id})")
 
-        return schemas.AssetResponse.model_validate(deleted_asset)
+        return _build_asset_response(deleted_asset if deleted_asset else asset)
 
     except Exception as e:
         logger.error(f"Error deleting asset {asset_id}: {e}")
@@ -275,36 +319,61 @@ async def delete_asset(
             detail=f"Failed to delete asset: {str(e)}"
         )
 
+        logger.info(f"Asset upsert completed: {action} {asset.hostname}")
 
-@router.get("/{asset_id}/audit", response_model=List[schemas.AuditLogResponse], tags=["Assets"])
-async def get_asset_audit_logs(
-    asset_id: UUID,
-    *,
-    db: Session = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    api_key: Optional[ApiKey] = Depends(optional_api_key)
-) -> List[schemas.AuditLogResponse]:
-    """
-    Get audit logs for a specific asset
+        # Handle 1Password secret creation/update automatically
+        settings = get_settings()
+        if settings.onepassword_enabled:
+            try:
+                # Get management controller if exists
+                mgmt_controller = db.query(ManagementController).filter(
+                    ManagementController.asset_id == asset.id
+                ).first()
 
-    Returns audit trail showing all changes made to the asset
-    """
-    # Verify asset exists
-    asset = crud.asset_crud.get(db=db, asset_id=asset_id)
-    if not asset:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Asset not found"
+                # Create OnePassword service
+                op_service = OnePasswordService(settings)
+
+                # Extract credentials from request (may be None, which is fine)
+                mgmt_credentials = getattr(asset_in, 'mgmt_credentials', None)
+                os_credentials = getattr(asset_in, 'os_credentials', None)
+
+                # Create/update 1Password secret (uses defaults if credentials not provided)
+                secret_id = await op_service.create_or_update_asset_secret(
+                    asset=asset,
+                    mgmt_controller=mgmt_controller,
+                    mgmt_credentials=mgmt_credentials,
+                    os_credentials=os_credentials
+                )
+
+                # Update asset with 1Password secret reference
+                if secret_id:
+                    asset.onepassword_secret_id = secret_id
+                    # You might also want to set the vault_id if available
+                    vault_id = await op_service.get_vault_id()
+                    asset.onepassword_vault_id = vault_id
+
+                    db.add(asset)
+                    db.commit()
+                    db.refresh(asset)
+
+                    logger.info(f"Created/updated 1Password secret for asset {asset.hostname}")
+
+            except OnePasswordError as e:
+                # Log the error but don't fail the asset upsert
+                logger.warning(f"Failed to create/update 1Password secret for asset {asset.hostname}: {e}")
+
+            except Exception as e:
+                # Log any other errors but don't fail the asset upsert
+                logger.error(f"Unexpected error with 1Password integration for asset {asset.hostname}: {e}")
+
+        return schemas.UpsertResponse(
+            asset=_build_asset_response(asset),
+            created=created
         )
 
-    # Get audit logs
-    logs, total = crud.audit_log_crud.get_multi(
-        db=db,
-        skip=skip,
-        limit=limit,
-        resource_type="asset",
-        resource_id=asset_id
-    )
-
-    return [schemas.AuditLogResponse.model_validate(log) for log in logs]
+    except Exception as e:
+        logger.error(f"Error during asset upsert: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upsert asset: {str(e)}"
+        )

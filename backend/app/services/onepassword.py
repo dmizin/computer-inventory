@@ -4,9 +4,10 @@
 import httpx
 import json
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from uuid import UUID
 from datetime import datetime
+import ssl
 
 from ..config import Settings
 from ..models import Asset, ManagementController
@@ -45,6 +46,28 @@ class OnePasswordService:
             'Content-Type': 'application/json'
         }
 
+    def _get_ssl_config(self) -> Union[bool, str, ssl.SSLContext]:
+        """Get SSL configuration for httpx client"""
+        if not self.settings.op_ssl_verify:
+            # Disable SSL verification entirely
+            logger.warning("SSL verification disabled for 1Password Connect - use only for testing!")
+            return False
+        elif self.settings.op_ssl_cert_file:
+            # Use custom CA certificate file
+            logger.info(f"Using custom CA certificate: {self.settings.op_ssl_cert_file}")
+            return self.settings.op_ssl_cert_file
+        else:
+            # Use default SSL verification
+            return True
+
+    def _create_http_client(self) -> httpx.AsyncClient:
+        """Create httpx client with proper SSL configuration"""
+        verify = self._get_ssl_config()
+        return httpx.AsyncClient(
+            timeout=self.timeout,
+            verify=verify
+        )
+
     async def test_connectivity(self) -> bool:
         """Test 1Password Connect connectivity and token validity"""
         if not self.enabled:
@@ -54,9 +77,9 @@ class OnePasswordService:
             raise OnePasswordError("1Password Connect host or API token not configured")
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._create_http_client() as client:
                 response = await client.get(
-                    f"{self.connect_host}/v1/heartbeat",
+                    f"{self.connect_host}/health",
                     headers=self._get_headers()
                 )
 
@@ -75,7 +98,7 @@ class OnePasswordService:
 
     async def get_vault_id(self) -> str:
         """Get vault ID by name"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._create_http_client() as client:
             response = await client.get(
                 f"{self.connect_host}/v1/vaults",
                 headers=self._get_headers()
@@ -168,7 +191,7 @@ class OnePasswordService:
             secret_name = self.settings.op_secret_template.format(asset_id=asset.id)
             existing_secret = await self._find_secret_by_title(vault_id, secret_name)
 
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._create_http_client() as client:
                 if existing_secret:
                     # Update existing secret
                     response = await client.put(
@@ -204,7 +227,7 @@ class OnePasswordService:
 
     async def _find_secret_by_title(self, vault_id: str, title: str) -> Optional[Dict[str, Any]]:
         """Find secret by title in vault"""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._create_http_client() as client:
             response = await client.get(
                 f"{self.connect_host}/v1/vaults/{vault_id}/items",
                 headers=self._get_headers(),
@@ -231,7 +254,7 @@ class OnePasswordService:
                 return None
 
             # Get full secret details
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._create_http_client() as client:
                 response = await client.get(
                     f"{self.connect_host}/v1/vaults/{vault_id}/items/{secret['id']}",
                     headers=self._get_headers()
