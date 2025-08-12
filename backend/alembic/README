@@ -1,0 +1,63 @@
+Starting from scratch or setting up on new database/machine. Initial database is created from `app/models` To track future changes setup alembic
+
+```bash
+pip install alembic
+```
+
+```bash
+# initialize. existing files will not be overwritten
+cd backend/
+alembic init alembic
+```
+
+## Initialize Alembic's Migration History
+
+### Create Empty Initial Migration
+
+
+1. **Create an empty initial migration:**
+```bash
+alembic revision -m "Initial empty migration"
+```
+
+2. **Stamp the database with this empty migration:**
+```bash
+alembic stamp head
+```
+
+3. **Now create the real migration:**
+```bash
+alembic revision --autogenerate -m "Add all tables"
+```
+
+If all good - it will create empty migration file as your database should be to models
+
+
+## Verify
+
+
+1. **Check current migration status:**
+```bash
+alembic current
+```
+
+2. **Try creating a test migration:**
+```bash
+alembic revision --autogenerate -m "Test migration"
+```
+This should now create an empty migration with just `pass` statements (which is correct if nothing changed).
+
+## Understanding Alembic's Migration Table
+
+Alembic tracks migrations in a table called `alembic_version`. You can check this:
+
+```sql
+-- Connect to your database and run:
+SELECT * FROM alembic_version;
+```
+
+If this table doesn't exist or is empty, you will get "not up to date" error.
+
+## The `alembic stamp` Command Explained
+
+The `stamp` command tells Alembic: "Mark the database as being at this migration version without actually running the migration."
