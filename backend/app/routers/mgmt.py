@@ -47,7 +47,6 @@ async def list_management_controllers(
         for controller in controllers
     ]
 
-
 @router.post("/{asset_id}/mgmt", response_model=schemas.ManagementControllerResponse, tags=["Management Controllers"])
 async def add_management_controller(
     asset_id: UUID,
@@ -59,8 +58,7 @@ async def add_management_controller(
     """
     Add a new management controller to an asset
 
-    FIXED: Now updates the asset's 1Password secret with management controller info
-    and sets credential_onepassword_ref to link the controller to the secret.
+    FIXED: Updates 1Password secret with controller info while preserving existing credentials.
     """
     # Verify asset exists
     asset = crud.asset_crud.get(db=db, asset_id=asset_id)
@@ -78,30 +76,46 @@ async def add_management_controller(
             asset_id=asset_id
         )
 
-        # FIXED: Update 1Password secret with management controller information
+        # FIXED: Update 1Password secret with controller info while preserving credentials
         settings = get_settings()
         if settings.onepassword_enabled and asset.onepassword_secret_id:
             try:
                 op_service = OnePasswordService(settings)
 
-                # Update the existing 1Password secret with the new management controller info
+                # Get existing credentials from the secret to preserve them
+                existing_secret_data = await op_service.get_asset_secret(asset.onepassword_secret_id)
+
+                # Extract existing management credentials
+                existing_mgmt_creds = {}
+                existing_os_creds = {}
+
+                for field in existing_secret_data.get('fields', []):
+                    field_id = field.get('id')
+                    field_value = field.get('value')
+
+                    if field_id == 'mgmt_username':
+                        existing_mgmt_creds['username'] = field_value
+                    elif field_id == 'mgmt_password':
+                        existing_mgmt_creds['password'] = field_value
+                    elif field_id == 'os_username':
+                        existing_os_creds['username'] = field_value
+                    elif field_id == 'os_password':
+                        existing_os_creds['password'] = field_value
+                    elif field_id == 'os_ssh_key':
+                        existing_os_creds['ssh_key'] = field_value
+
+                # Update the secret with controller info but preserve credentials
                 secret_id = await op_service.create_or_update_asset_secret(
                     asset=asset,
                     mgmt_controller=controller,
-                    mgmt_credentials=None,  # Use defaults since no credentials provided
-                    os_credentials=None     # Use defaults since no credentials provided
+                    mgmt_credentials=existing_mgmt_creds,  # Preserve existing
+                    os_credentials=existing_os_creds       # Preserve existing
                 )
 
                 if secret_id:
-                    # FIXED: Link the management controller to the 1Password secret
-                    controller.credential_onepassword_ref = secret_id
-                    db.add(controller)
-                    db.commit()
-                    db.refresh(controller)
-
-                    logger.info(f"Updated 1Password secret {secret_id} with management controller {controller.type}")
+                    logger.info(f"Updated 1Password secret with management controller info while preserving credentials")
                 else:
-                    logger.warning(f"Failed to update 1Password secret for management controller {controller.id}")
+                    logger.warning(f"Failed to update 1Password secret for management controller")
 
             except OnePasswordError as e:
                 logger.warning(f"Failed to update 1Password secret for management controller: {e}")
@@ -130,7 +144,6 @@ async def add_management_controller(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create management controller: {str(e)}"
         )
-
 
 @router.get("/mgmt/{controller_id}", response_model=schemas.ManagementControllerResponse, tags=["Management Controllers"])
 async def get_management_controller(

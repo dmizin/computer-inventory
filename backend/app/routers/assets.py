@@ -96,17 +96,16 @@ async def upsert_asset(
                     os_credentials=os_credentials
                 )
 
-                # FIXED: Update asset with 1Password secret reference and properly commit
+                # SIMPLE FIX: Update asset with 1Password secret reference
                 if secret_id:
                     # Get vault ID
                     vault_id = await op_service.get_vault_id()
 
-                    # Update the asset with 1Password references
+                    # Update the asset object directly (it should still be attached to session)
                     asset.onepassword_secret_id = secret_id
                     asset.onepassword_vault_id = vault_id
 
-                    # Explicitly mark the object as modified and commit
-                    db.add(asset)
+                    # Simple commit - no need for complex session management
                     db.commit()
                     db.refresh(asset)
 
@@ -132,8 +131,6 @@ async def upsert_asset(
 
     except Exception as e:
         logger.error(f"Error during asset upsert: {e}")
-        # Make sure to rollback the database transaction on error
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upsert asset: {str(e)}"
