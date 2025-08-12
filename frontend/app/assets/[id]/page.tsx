@@ -8,7 +8,7 @@ import {
   ArrowLeftIcon,
   PencilIcon,
   TrashIcon,
-  ExternalLinkIcon,
+  ArrowTopRightOnSquareIcon,
   ComputerDesktopIcon,
   ServerIcon,
   DevicePhoneMobileIcon,
@@ -78,6 +78,7 @@ export default function AssetDetailPage() {
     }
   }
 
+  // CRITICAL: Safety checks BEFORE defining TypeIcon
   if (error) {
     return (
       <div className="max-w-7xl mx-auto">
@@ -121,6 +122,7 @@ export default function AssetDetailPage() {
 
   if (!asset) return null
 
+  // SAFE: Now asset is guaranteed to exist
   const TypeIcon = getAssetTypeIcon(asset.type)
 
   return (
@@ -139,13 +141,13 @@ export default function AssetDetailPage() {
 
         {canEdit && (
           <div className="flex items-center space-x-3">
-            <button
-              type="button"
+            <Link
+              href={`/assets/${assetId}/edit`}
               className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               <PencilIcon className="h-4 w-4 mr-2" />
               Edit
-            </button>
+            </Link>
 
             <button
               onClick={handleDeleteAsset}
@@ -200,7 +202,7 @@ export default function AssetDetailPage() {
             {asset.serial_number && (
               <div>
                 <dt className="text-sm font-medium text-gray-500">Serial Number</dt>
-                <dd className="mt-1 text-sm text-gray-900 font-mono">{asset.serial_number}</dd>
+                <dd className="mt-1 text-sm text-gray-900">{asset.serial_number}</dd>
               </div>
             )}
 
@@ -212,9 +214,32 @@ export default function AssetDetailPage() {
             )}
 
             <div>
+              <dt className="text-sm font-medium text-gray-500">Created</dt>
+              <dd className="mt-1 text-sm text-gray-900">
+                {format(new Date(asset.created_at), 'PPP')}
+              </dd>
+            </div>
+
+            <div>
               <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
               <dd className="mt-1 text-sm text-gray-900">
-                {format(new Date(asset.updated_at), 'MMM d, yyyy \'at\' h:mm a')}
+                {format(new Date(asset.updated_at), 'PPP')}
+              </dd>
+            </div>
+
+            {/* 1Password Integration Status */}
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Credentials</dt>
+              <dd className="mt-1 text-sm text-gray-900">
+                {asset.has_onepassword_secret ? (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    Stored in 1Password
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    Not configured
+                  </span>
+                )}
               </dd>
             </div>
           </dl>
@@ -229,38 +254,31 @@ export default function AssetDetailPage() {
           </div>
           <div className="px-6 py-4">
             <div className="space-y-4">
-              {asset.management_controllers.map((controller) => {
-                const controllerType = MANAGEMENT_CONTROLLER_TYPES.find(
-                  t => t.value === controller.type
-                )?.label || controller.type.toUpperCase()
-
-                return (
-                  <div key={controller.id} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">
-                          {controllerType}
-                        </h3>
-                        <p className="text-sm text-gray-500">
-                          {controller.address}:{controller.port}
-                        </p>
-                      </div>
-
-                      {controller.ui_url && (
-                        <a
-                          href={controller.ui_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                          Open Console
-                          <ExternalLinkIcon className="ml-1 h-3 w-3" />
-                        </a>
-                      )}
+              {asset.management_controllers.map((controller: any) => (
+                <div key={controller.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-900 capitalize">
+                        {controller.type}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {controller.address}:{controller.port}
+                      </p>
                     </div>
+                    {controller.ui_url && (
+                      <a
+                        href={controller.ui_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                      >
+                        <ArrowTopRightOnSquareIcon className="h-4 w-4 mr-2" />
+                        Open Interface
+                      </a>
+                    )}
                   </div>
-                )
-              })}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -274,21 +292,6 @@ export default function AssetDetailPage() {
           </div>
           <div className="px-6 py-4">
             <JsonViewer data={asset.specs} />
-          </div>
-        </div>
-      )}
-
-      {/* Raw Asset Data (for debugging/admin) */}
-      {canEdit && (
-        <div className="bg-white shadow rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-medium text-gray-900">Raw Asset Data</h2>
-            <p className="text-sm text-gray-500">
-              Complete asset information as stored in the database
-            </p>
-          </div>
-          <div className="px-6 py-4">
-            <JsonViewer data={asset} />
           </div>
         </div>
       )}
