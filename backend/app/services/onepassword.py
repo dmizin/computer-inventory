@@ -1,5 +1,5 @@
 ﻿"""
-1Password Connect integration service - FIXED VERSION
+1Password Connect integration service - COMPLETE FIXED VERSION
 """
 import httpx
 import json
@@ -49,15 +49,12 @@ class OnePasswordService:
     def _get_ssl_config(self) -> Union[bool, str, ssl.SSLContext]:
         """Get SSL configuration for httpx client"""
         if not self.settings.op_ssl_verify:
-            # Disable SSL verification entirely
             logger.warning("SSL verification disabled for 1Password Connect - use only for testing!")
             return False
         elif self.settings.op_ssl_cert_file:
-            # Use custom CA certificate file
             logger.info(f"Using custom CA certificate: {self.settings.op_ssl_cert_file}")
             return self.settings.op_ssl_cert_file
         else:
-            # Use default SSL verification
             return True
 
     def _create_http_client(self) -> httpx.AsyncClient:
@@ -78,7 +75,6 @@ class OnePasswordService:
 
         try:
             async with self._create_http_client() as client:
-                # Updated to use the correct health endpoint
                 response = await client.get(
                     f"{self.connect_host}/health",
                     headers=self._get_headers()
@@ -98,7 +94,7 @@ class OnePasswordService:
             raise OnePasswordError(f"1Password Connect test failed: {e}")
 
     async def get_vault_id(self) -> str:
-        """Get vault ID by name - FIXED: Now properly async"""
+        """Get vault ID by name"""
         async with self._create_http_client() as client:
             response = await client.get(
                 f"{self.connect_host}/v1/vaults",
@@ -115,16 +111,27 @@ class OnePasswordService:
 
             raise OnePasswordError(f"Vault '{self.vault_name}' not found")
 
+    def _build_management_url(self, mgmt_controller: ManagementController, mgmt_credentials: Optional[Dict[str, str]] = None) -> str:
+        """Build management URL from controller and optional credentials"""
+        if not mgmt_controller:
+            return ""
+
+        # If ui_url is explicitly set, use it
+        if mgmt_controller.ui_url:
+            return mgmt_controller.ui_url
+
+        # Otherwise, construct URL from address and port
+        protocol = "https" if mgmt_controller.port == 443 else "http"
+        if mgmt_controller.port in [80, 443]:
+            return f"{protocol}://{mgmt_controller.address}"
+        else:
+            return f"{protocol}://{mgmt_controller.address}:{mgmt_controller.port}"
+
     def _build_secret_data(self, asset: Asset, mgmt_controller: Optional[ManagementController] = None,
                           mgmt_credentials: Optional[Dict[str, str]] = None,
                           os_credentials: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-        """Build 1Password secret data structure - FIXED: Updated for current API"""
+        """Build 1Password secret data structure - ROBUST CREDENTIAL FIX"""
         secret_name = self.settings.op_secret_template.format(asset_id=asset.id)
-
-        # Get management defaults based on controller type
-        mgmt_defaults = {'username': 'admin', 'password': 'changeme'}
-        if mgmt_controller and mgmt_controller.type in self.mgmt_defaults:
-            mgmt_defaults = self.mgmt_defaults[mgmt_controller.type]
 
         # Build secret fields using updated API structure
         fields = [
@@ -134,16 +141,59 @@ class OnePasswordService:
             {"id": "asset_location", "label": "Asset Location", "type": "STRING", "value": asset.location or ""}
         ]
 
-        # Add management controller credentials
+        # Build URLs list for management controller
+        urls = []
+
+        # Add management controller credentials and info
         if mgmt_controller:
-            mgmt_user = mgmt_credentials.get('username') if mgmt_credentials else mgmt_defaults['username']
-            mgmt_pass = mgmt_credentials.get('password') if mgmt_credentials else mgmt_defaults['password']
+            # Get management defaults based on controller type
+            mgmt_defaults = self.mgmt_defaults.get(mgmt_controller.type, {'username': 'admin', 'password': 'changeme'})
+
+            # ROBUST CREDENTIAL CHECKING - Multiple validation layers
+            mgmt_user = mgmt_defaults['username']  # Start with default
+            mgmt_pass = mgmt_defaults['password']  # Start with default
+
+            # Check if mgmt_credentials is provided and valid
+            if mgmt_credentials is not None:
+                logger.debug(f"mgmt_credentials received: {type(mgmt_credentials)} = {mgmt_credentials}")
+
+                if isinstance(mgmt_credentials, dict):
+                    # Check if username is provided and not empty
+                    if 'username' in mgmt_credentials:
+                        provided_username = mgmt_credentials['username']
+                        if provided_username and str(provided_username).strip():
+                            mgmt_user = str(provided_username).strip()
+                            logger.info(f"✅ Using PROVIDED management username: '{mgmt_user}'")
+                        else:
+                            logger.info(f"⚠️  Empty management username provided, using default: '{mgmt_user}'")
+
+                    # Check if password is provided and not empty
+                    if 'password' in mgmt_credentials:
+                        provided_password = mgmt_credentials['password']
+                        if provided_password and str(provided_password).strip():
+                            mgmt_pass = str(provided_password).strip()
+                            logger.info(f"✅ Using PROVIDED management password: '{mgmt_pass[:3]}***'")
+                        else:
+                            logger.info(f"⚠️  Empty management password provided, using default")
+                else:
+                    logger.warning(f"⚠️  mgmt_credentials is not a dict: {type(mgmt_credentials)}")
+            else:
+                logger.info(f"ℹ️  No mgmt_credentials provided, using defaults: username='{mgmt_user}'")
+
+            # Build management URL
+            mgmt_url = self._build_management_url(mgmt_controller, mgmt_credentials)
+            if mgmt_url:
+                urls.append({
+                    "label": "Management Interface",
+                    "primary": True,
+                    "href": mgmt_url
+                })
 
             fields.extend([
                 {"id": "mgmt_type", "label": "Management Type", "type": "STRING", "value": mgmt_controller.type},
                 {"id": "mgmt_address", "label": "Management Address", "type": "STRING", "value": mgmt_controller.address},
                 {"id": "mgmt_port", "label": "Management Port", "type": "STRING", "value": str(mgmt_controller.port)},
-                {"id": "mgmt_ui_url", "label": "Management UI URL", "type": "STRING", "value": mgmt_controller.ui_url or ""},
+                {"id": "mgmt_ui_url", "label": "Management UI URL", "type": "STRING", "value": mgmt_url},
                 {"id": "mgmt_username", "label": "Management Username", "type": "STRING", "value": mgmt_user},
                 {"id": "mgmt_password", "label": "Management Password", "type": "CONCEALED", "value": mgmt_pass}
             ])
@@ -158,10 +208,44 @@ class OnePasswordService:
                 {"id": "mgmt_password", "label": "Management Password", "type": "CONCEALED", "value": "changeme"}
             ])
 
-        # Add OS credentials
-        os_user = os_credentials.get('username') if os_credentials else 'root'
-        os_pass = os_credentials.get('password') if os_credentials else 'changeme'
-        os_ssh_key = os_credentials.get('ssh_key') if os_credentials else ''
+        # Add OS credentials - SAME ROBUST PATTERN
+        os_user = 'root'    # Start with default
+        os_pass = 'changeme'  # Start with default
+        os_ssh_key = ''     # Start with empty
+
+        # Check if os_credentials is provided and valid
+        if os_credentials is not None:
+            logger.debug(f"os_credentials received: {type(os_credentials)} = {os_credentials}")
+
+            if isinstance(os_credentials, dict):
+                # Check username
+                if 'username' in os_credentials:
+                    provided_username = os_credentials['username']
+                    if provided_username and str(provided_username).strip():
+                        os_user = str(provided_username).strip()
+                        logger.info(f"✅ Using PROVIDED OS username: '{os_user}'")
+                    else:
+                        logger.info(f"⚠️  Empty OS username provided, using default: '{os_user}'")
+
+                # Check password
+                if 'password' in os_credentials:
+                    provided_password = os_credentials['password']
+                    if provided_password and str(provided_password).strip():
+                        os_pass = str(provided_password).strip()
+                        logger.info(f"✅ Using PROVIDED OS password: '{os_pass[:3]}***'")
+                    else:
+                        logger.info(f"⚠️  Empty OS password provided, using default")
+
+                # Check SSH key
+                if 'ssh_key' in os_credentials:
+                    provided_ssh_key = os_credentials['ssh_key']
+                    if provided_ssh_key and str(provided_ssh_key).strip():
+                        os_ssh_key = str(provided_ssh_key).strip()
+                        logger.info(f"✅ Using PROVIDED SSH key: {len(os_ssh_key)} characters")
+            else:
+                logger.warning(f"⚠️  os_credentials is not a dict: {type(os_credentials)}")
+        else:
+            logger.info(f"ℹ️  No os_credentials provided, using defaults: username='{os_user}'")
 
         fields.extend([
             {"id": "os_username", "label": "OS Username", "type": "STRING", "value": os_user},
@@ -169,7 +253,8 @@ class OnePasswordService:
             {"id": "os_ssh_key", "label": "OS SSH Key", "type": "STRING", "value": os_ssh_key}
         ])
 
-        return {
+        # Build the complete secret data structure
+        secret_data = {
             "title": secret_name,
             "category": "LOGIN",
             "vault": {"id": ""},  # Will be filled in by create_or_update_asset_secret
@@ -177,10 +262,21 @@ class OnePasswordService:
             "tags": ["computer-inventory", "asset", asset.type]
         }
 
+        # Add URLs if we have any
+        if urls:
+            secret_data["urls"] = urls
+
+        # FINAL DEBUG LOG
+        logger.info(f"🔍 Final credential summary for {asset.hostname}:")
+        logger.info(f"  Management: user='{mgmt_user}', has_controller={mgmt_controller is not None}")
+        logger.info(f"  OS: user='{os_user}'")
+        logger.info(f"  URLs: {len(urls)} website(s)")
+
+        return secret_data
+
     async def _find_secret_by_title(self, vault_id: str, secret_name: str) -> Optional[Dict[str, Any]]:
-        """Find secret by title in vault - FIXED: Proper API usage"""
+        """Find secret by title in vault"""
         async with self._create_http_client() as client:
-            # Use the filter parameter as documented in the API
             response = await client.get(
                 f"{self.connect_host}/v1/vaults/{vault_id}/items",
                 headers=self._get_headers(),
@@ -197,7 +293,7 @@ class OnePasswordService:
                                           mgmt_controller: Optional[ManagementController] = None,
                                           mgmt_credentials: Optional[Dict[str, str]] = None,
                                           os_credentials: Optional[Dict[str, str]] = None) -> str:
-        """Create or update 1Password secret for an asset - FIXED: Updated API calls"""
+        """Create or update 1Password secret for an asset"""
         if not self.enabled:
             return ""
 
@@ -214,14 +310,13 @@ class OnePasswordService:
 
             async with self._create_http_client() as client:
                 if existing_secret:
-                    # Update existing secret - Use PUT for full replacement
+                    # Update existing secret
                     response = await client.put(
                         f"{self.connect_host}/v1/vaults/{vault_id}/items/{existing_secret['id']}",
                         headers=self._get_headers(),
                         json=secret_data
                     )
 
-                    # Accept both 200 and 201 as success for updates
                     if response.status_code in [200, 201]:
                         logger.info(f"Updated 1Password secret for asset {asset.hostname}")
                         return existing_secret['id']
@@ -229,14 +324,13 @@ class OnePasswordService:
                         logger.error(f"Failed to update secret: {response.status_code} - {response.text}")
                         raise OnePasswordError(f"Failed to update secret: {response.status_code}")
                 else:
-                    # Create new secret - Use POST
+                    # Create new secret
                     response = await client.post(
                         f"{self.connect_host}/v1/vaults/{vault_id}/items",
                         headers=self._get_headers(),
                         json=secret_data
                     )
 
-                    # Accept both 200 and 201 as success for creation
                     if response.status_code in [200, 201]:
                         secret_id = response.json()['id']
                         logger.info(f"Created 1Password secret for asset {asset.hostname}")
@@ -261,7 +355,6 @@ class OnePasswordService:
 
             async with self._create_http_client() as client:
                 url = f"{self.connect_host}/v1/vaults/{vault_id}/items/{secret_id}"
-                logger.info(f"Retrieving secret from URL: {url}")
 
                 response = await client.get(
                     url,
@@ -272,22 +365,6 @@ class OnePasswordService:
                     return response.json()
                 else:
                     logger.error(f"Failed to get secret: {response.status_code} - {response.text}")
-                    # Also try to list all items to see if the secret exists with a different name
-                    logger.info("Attempting to list vault items to debug...")
-                    list_response = await client.get(
-                        f"{self.connect_host}/v1/vaults/{vault_id}/items",
-                        headers=self._get_headers()
-                    )
-                    if list_response.status_code == 200:
-                        items = list_response.json()
-                        logger.info(f"Found {len(items)} items in vault")
-                        for item in items:
-                            if item.get('id') == secret_id:
-                                logger.info(f"Found matching item: {item.get('title')}")
-                                break
-                        else:
-                            logger.warning(f"Secret ID {secret_id} not found in vault items")
-
                     raise OnePasswordError(f"Failed to get secret: {response.status_code}")
 
         except OnePasswordError:

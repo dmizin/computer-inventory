@@ -1,5 +1,6 @@
 """
 Management Controllers API endpoints for Computer Inventory System
+FIXED: Now updates 1Password secrets when management controllers are added/updated
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -10,6 +11,8 @@ import logging
 from ..database import get_db
 from ..auth import verify_api_key_dependency
 from ..models import ApiKey
+from ..services import OnePasswordService, OnePasswordError
+from ..config import get_settings
 from .. import schemas, crud
 
 logger = logging.getLogger(__name__)
@@ -56,7 +59,8 @@ async def add_management_controller(
     """
     Add a new management controller to an asset
 
-    Creates a new out-of-band management interface record for the asset.
+    FIXED: Now updates the asset's 1Password secret with management controller info
+    and sets credential_onepassword_ref to link the controller to the secret.
     """
     # Verify asset exists
     asset = crud.asset_crud.get(db=db, asset_id=asset_id)
@@ -73,6 +77,38 @@ async def add_management_controller(
             obj_in=controller_in,
             asset_id=asset_id
         )
+
+        # FIXED: Update 1Password secret with management controller information
+        settings = get_settings()
+        if settings.onepassword_enabled and asset.onepassword_secret_id:
+            try:
+                op_service = OnePasswordService(settings)
+
+                # Update the existing 1Password secret with the new management controller info
+                secret_id = await op_service.create_or_update_asset_secret(
+                    asset=asset,
+                    mgmt_controller=controller,
+                    mgmt_credentials=None,  # Use defaults since no credentials provided
+                    os_credentials=None     # Use defaults since no credentials provided
+                )
+
+                if secret_id:
+                    # FIXED: Link the management controller to the 1Password secret
+                    controller.credential_onepassword_ref = secret_id
+                    db.add(controller)
+                    db.commit()
+                    db.refresh(controller)
+
+                    logger.info(f"Updated 1Password secret {secret_id} with management controller {controller.type}")
+                else:
+                    logger.warning(f"Failed to update 1Password secret for management controller {controller.id}")
+
+            except OnePasswordError as e:
+                logger.warning(f"Failed to update 1Password secret for management controller: {e}")
+                # Don't fail the controller creation if 1Password update fails
+            except Exception as e:
+                logger.error(f"Unexpected error updating 1Password secret: {e}")
+                # Don't fail the controller creation if 1Password update fails
 
         # Log the change
         api_key_id = api_key.id if api_key else None
@@ -126,6 +162,7 @@ async def update_management_controller(
     """
     Update an existing management controller
 
+    FIXED: Now updates the associated 1Password secret when controller details change.
     Only provided fields will be updated. Empty or null fields will be ignored.
     """
     # Get existing controller
@@ -149,6 +186,33 @@ async def update_management_controller(
             db_obj=controller,
             obj_in=controller_in
         )
+
+        # FIXED: Update 1Password secret if controller details changed
+        settings = get_settings()
+        if settings.onepassword_enabled and updated_controller.credential_onepassword_ref:
+            try:
+                # Get the associated asset
+                asset = crud.asset_crud.get(db=db, asset_id=updated_controller.asset_id)
+                if asset:
+                    op_service = OnePasswordService(settings)
+
+                    # Update the 1Password secret with the updated management controller info
+                    secret_id = await op_service.create_or_update_asset_secret(
+                        asset=asset,
+                        mgmt_controller=updated_controller,
+                        mgmt_credentials=None,  # Use defaults since no credentials provided
+                        os_credentials=None     # Use defaults since no credentials provided
+                    )
+
+                    if secret_id:
+                        logger.info(f"Updated 1Password secret {secret_id} with updated management controller")
+                    else:
+                        logger.warning(f"Failed to update 1Password secret for management controller {controller_id}")
+
+            except OnePasswordError as e:
+                logger.warning(f"Failed to update 1Password secret for management controller update: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error updating 1Password secret: {e}")
 
         # Log the change
         changes = {
@@ -186,6 +250,7 @@ async def delete_management_controller(
     """
     Delete a management controller
 
+    FIXED: Updates the associated 1Password secret to remove management controller info.
     Permanently removes the management controller from the database.
     """
     # Get existing controller
@@ -197,6 +262,31 @@ async def delete_management_controller(
         )
 
     try:
+        # FIXED: Update 1Password secret to remove management controller info
+        settings = get_settings()
+        if settings.onepassword_enabled and controller.credential_onepassword_ref:
+            try:
+                # Get the associated asset
+                asset = crud.asset_crud.get(db=db, asset_id=controller.asset_id)
+                if asset:
+                    op_service = OnePasswordService(settings)
+
+                    # Update the 1Password secret without the management controller
+                    secret_id = await op_service.create_or_update_asset_secret(
+                        asset=asset,
+                        mgmt_controller=None,  # Remove management controller info
+                        mgmt_credentials=None,
+                        os_credentials=None
+                    )
+
+                    if secret_id:
+                        logger.info(f"Updated 1Password secret {secret_id} to remove management controller")
+
+            except OnePasswordError as e:
+                logger.warning(f"Failed to update 1Password secret for management controller deletion: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error updating 1Password secret: {e}")
+
         # Log before delete
         api_key_id = api_key.id if api_key else None
         crud.log_controller_change(
