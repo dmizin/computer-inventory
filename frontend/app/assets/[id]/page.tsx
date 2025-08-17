@@ -1,300 +1,284 @@
 'use client'
 
-import { useParams } from 'next/navigation'
-import Link from 'next/link'
-import useSWR from 'swr'
-import { format } from 'date-fns'
-import {
-  ArrowLeftIcon,
-  PencilIcon,
-  TrashIcon,
-  ArrowTopRightOnSquareIcon,
-  ComputerDesktopIcon,
-  ServerIcon,
-  DevicePhoneMobileIcon,
-  CircleStackIcon,
-  ExclamationTriangleIcon,
-} from '@heroicons/react/24/outline'
-import { apiClient, swrConfig } from '@/lib/api-client'
-import { AssetType, ASSET_STATUSES, MANAGEMENT_CONTROLLER_TYPES } from '@/lib/types'
-import { useAuth, canEditAssets } from '@/lib/use-auth'
-import JsonViewer from '@/components/JsonViewer'
-import { clsx } from 'clsx'
+import { useState, useEffect } from 'react'
+import { ServerIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 
-export default function AssetDetailPage() {
-  const params = useParams()
-  const { user } = useAuth()
-  const canEdit = canEditAssets(user)
-  const assetId = params.id as string
+export default function DebugAssetsPage() {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<any>({})
 
-  const { data: asset, error, isLoading } = useSWR(
-    assetId ? `asset-${assetId}` : null,
-    async () => await apiClient.getAsset(assetId),
-    swrConfig
-  )
+  useEffect(() => {
+    async function fetchAssets() {
+      try {
+        setLoading(true)
+        setError(null)
 
-  const getAssetTypeIcon = (type: AssetType) => {
-    const icons = {
-      server: ServerIcon,
-      workstation: ComputerDesktopIcon,
-      network: DevicePhoneMobileIcon,
-      storage: CircleStackIcon,
-    }
-    return icons[type] || ComputerDesktopIcon
-  }
+        console.log('🔍 Starting assets fetch...')
 
-  const getStatusBadge = (status: string) => {
-    const statusConfig = ASSET_STATUSES.find(s => s.value === status)
-    if (!statusConfig) return null
+        // Try the API call
+        const response = await fetch('/api/assets')
 
-    const colorClasses = {
-      green: 'bg-green-100 text-green-800',
-      yellow: 'bg-yellow-100 text-yellow-800',
-      red: 'bg-red-100 text-red-800',
-    }
+        console.log('📡 Response status:', response.status)
+        console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()))
 
-    return (
-      <span className={clsx(
-        'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-        colorClasses[statusConfig.color as keyof typeof colorClasses] || 'bg-gray-100 text-gray-800'
-      )}>
-        {statusConfig.label}
-      </span>
-    )
-  }
+        const responseText = await response.text()
+        console.log('📄 Raw response:', responseText)
 
-  const handleDeleteAsset = async () => {
-    if (!confirm('Are you sure you want to delete this asset? This action cannot be undone.')) {
-      return
+        setDebugInfo({
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers.entries()),
+          rawResponse: responseText.substring(0, 500) + (responseText.length > 500 ? '...' : '')
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        // Try to parse JSON
+        let jsonData
+        try {
+          jsonData = JSON.parse(responseText)
+        } catch (parseError) {
+          throw new Error(`JSON Parse Error: ${parseError}`)
+        }
+
+        console.log('✅ Parsed data:', jsonData)
+        setData(jsonData)
+
+      } catch (err) {
+        console.error('❌ Assets fetch failed:', err)
+        setError(err instanceof Error ? err.message : 'Unknown error')
+      } finally {
+        setLoading(false)
+      }
     }
 
-    try {
-      await apiClient.deleteAsset(assetId)
-      // Redirect to assets list after successful deletion
-      window.location.href = '/assets'
-    } catch (error) {
-      console.error('Failed to delete asset:', error)
-      alert('Failed to delete asset. Please try again.')
-    }
-  }
-
-  // CRITICAL: Safety checks BEFORE defining TypeIcon
-  if (error) {
-    return (
-      <div className="max-w-7xl mx-auto">
-        <div className="bg-red-50 border border-red-200 rounded-md p-4">
-          <div className="flex">
-            <ExclamationTriangleIcon className="h-5 w-5 text-red-400" />
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Asset not found</h3>
-              <div className="mt-2 text-sm text-red-700">
-                <p>The requested asset could not be found or you don't have permission to view it.</p>
-              </div>
-              <div className="mt-4">
-                <Link
-                  href="/assets"
-                  className="text-sm font-medium text-red-600 hover:text-red-500"
-                >
-                  ← Back to assets
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (isLoading) {
-    return (
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="h-8 bg-gray-200 rounded animate-pulse" />
-        <div className="bg-white shadow rounded-lg p-6 space-y-4">
-          <div className="h-6 bg-gray-200 rounded animate-pulse w-1/3" />
-          <div className="space-y-2">
-            <div className="h-4 bg-gray-200 rounded animate-pulse" />
-            <div className="h-4 bg-gray-200 rounded animate-pulse w-2/3" />
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!asset) return null
-
-  // SAFE: Now asset is guaranteed to exist
-  const TypeIcon = getAssetTypeIcon(asset.type)
+    fetchAssets()
+  }, [])
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header with back button */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Link
-            href="/assets"
-            className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
-          >
-            <ArrowLeftIcon className="h-4 w-4 mr-2" />
-            Back to assets
-          </Link>
+    <div className="min-h-screen bg-gray-50 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Assets Debug Page</h1>
+          <p className="text-sm text-gray-500">Debugging assets API connection</p>
         </div>
 
-        {canEdit && (
-          <div className="flex items-center space-x-3">
-            <Link
-              href={`/assets/${assetId}/edit`}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              <PencilIcon className="h-4 w-4 mr-2" />
-              Edit
-            </Link>
+        {/* Status Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="text-sm text-gray-500">Loading</div>
+            <div className={`text-lg font-semibold ${loading ? 'text-yellow-600' : 'text-gray-900'}`}>
+              {loading ? 'Yes' : 'No'}
+            </div>
+          </div>
 
-            <button
-              onClick={handleDeleteAsset}
-              type="button"
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-            >
-              <TrashIcon className="h-4 w-4 mr-2" />
-              Delete
-            </button>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="text-sm text-gray-500">Error</div>
+            <div className={`text-lg font-semibold ${error ? 'text-red-600' : 'text-green-600'}`}>
+              {error ? 'Yes' : 'No'}
+            </div>
+          </div>
+
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="text-sm text-gray-500">Data Received</div>
+            <div className={`text-lg font-semibold ${data ? 'text-green-600' : 'text-gray-400'}`}>
+              {data ? 'Yes' : 'No'}
+            </div>
+          </div>
+        </div>
+
+        {/* Loading State */}
+        {loading && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-3"></div>
+              <span className="text-blue-800">Loading assets from API...</span>
+            </div>
           </div>
         )}
-      </div>
 
-      {/* Asset Header */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center">
-            <TypeIcon className="h-8 w-8 text-gray-400" />
-            <div className="ml-4">
-              <h1 className="text-2xl font-bold text-gray-900">{asset.hostname}</h1>
-              {asset.fqdn && (
-                <p className="text-sm text-gray-500">{asset.fqdn}</p>
-              )}
+        {/* Error State */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex items-start">
+              <ExclamationTriangleIcon className="h-5 w-5 text-red-400 mr-3 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="text-sm font-medium text-red-800">API Error</h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <p>{error}</p>
+                </div>
+              </div>
             </div>
-            <div className="ml-auto">
-              {getStatusBadge(asset.status)}
+          </div>
+        )}
+
+        {/* Success State */}
+        {data && !loading && !error && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center">
+              <ServerIcon className="h-5 w-5 text-green-400 mr-3" />
+              <span className="text-green-800">Successfully loaded assets data!</span>
             </div>
+          </div>
+        )}
+
+        {/* Debug Information */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Debug Information</h2>
+
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-700">API Endpoint</h3>
+              <code className="text-sm bg-gray-100 px-2 py-1 rounded">/api/assets</code>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-medium text-gray-700">Response Status</h3>
+              <code className="text-sm bg-gray-100 px-2 py-1 rounded">
+                {debugInfo.status || 'Not yet called'} {debugInfo.statusText || ''}
+              </code>
+            </div>
+
+            {debugInfo.headers && (
+              <div>
+                <h3 className="text-sm font-medium text-gray-700">Response Headers</h3>
+                <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
+                  {JSON.stringify(debugInfo.headers, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            {debugInfo.rawResponse && (
+              <div>
+                <h3 className="text-sm font-medium text-gray-700">Raw Response (first 500 chars)</h3>
+                <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
+                  {debugInfo.rawResponse}
+                </pre>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="px-6 py-4">
-          <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Asset Type</dt>
-              <dd className="mt-1 text-sm text-gray-900 capitalize">{asset.type}</dd>
-            </div>
+        {/* Data Display */}
+        {data && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Received Data</h2>
 
-            {asset.vendor && (
+            {/* Try to show assets if they exist in the expected format */}
+            {data.data && Array.isArray(data.data) ? (
               <div>
-                <dt className="text-sm font-medium text-gray-500">Vendor</dt>
-                <dd className="mt-1 text-sm text-gray-900">{asset.vendor}</dd>
-              </div>
-            )}
+                <p className="text-sm text-green-600 mb-4">
+                  ✅ Found {data.data.length} assets in expected format
+                </p>
 
-            {asset.model && (
-              <div>
-                <dt className="text-sm font-medium text-gray-500">Model</dt>
-                <dd className="mt-1 text-sm text-gray-900">{asset.model}</dd>
-              </div>
-            )}
-
-            {asset.serial_number && (
-              <div>
-                <dt className="text-sm font-medium text-gray-500">Serial Number</dt>
-                <dd className="mt-1 text-sm text-gray-900">{asset.serial_number}</dd>
-              </div>
-            )}
-
-            {asset.location && (
-              <div>
-                <dt className="text-sm font-medium text-gray-500">Location</dt>
-                <dd className="mt-1 text-sm text-gray-900">{asset.location}</dd>
-              </div>
-            )}
-
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Created</dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {format(new Date(asset.created_at), 'PPP')}
-              </dd>
-            </div>
-
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {format(new Date(asset.updated_at), 'PPP')}
-              </dd>
-            </div>
-
-            {/* 1Password Integration Status */}
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Credentials</dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {asset.has_onepassword_secret ? (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Stored in 1Password
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                    Not configured
-                  </span>
-                )}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      </div>
-
-      {/* Management Controllers */}
-      {asset.management_controllers && asset.management_controllers.length > 0 && (
-        <div className="bg-white shadow rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-medium text-gray-900">Management Controllers</h2>
-          </div>
-          <div className="px-6 py-4">
-            <div className="space-y-4">
-              {asset.management_controllers.map((controller: any) => (
-                <div key={controller.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-900 capitalize">
-                        {controller.type}
-                      </h3>
-                      <p className="text-sm text-gray-500">
-                        {controller.address}:{controller.port}
+                {data.data.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                            Hostname
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                            Type
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                            Status
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                            Vendor
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {data.data.slice(0, 5).map((asset: any, index: number) => (
+                          <tr key={index}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {asset.hostname || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {asset.type || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {asset.status || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {asset.vendor || 'N/A'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {data.data.length > 5 && (
+                      <p className="mt-2 text-sm text-gray-500">
+                        Showing first 5 of {data.data.length} assets
                       </p>
-                    </div>
-                    {controller.ui_url && (
-                      <a
-                        href={controller.ui_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        <ArrowTopRightOnSquareIcon className="h-4 w-4 mr-2" />
-                        Open Interface
-                      </a>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-yellow-600 mb-4">
+                  ⚠️ Data not in expected format (expected data.data array)
+                </p>
+              </div>
+            )}
 
-      {/* Hardware Specifications */}
-      {asset.specs && Object.keys(asset.specs).length > 0 && (
-        <div className="bg-white shadow rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-medium text-gray-900">Hardware Specifications</h2>
+            {/* Raw JSON */}
+            <details className="mt-4">
+              <summary className="text-sm font-medium text-gray-700 cursor-pointer">
+                View Raw JSON Response
+              </summary>
+              <pre className="mt-2 text-xs bg-gray-100 p-4 rounded overflow-x-auto">
+                {JSON.stringify(data, null, 2)}
+              </pre>
+            </details>
           </div>
-          <div className="px-6 py-4">
-            <JsonViewer data={asset.specs} />
+        )}
+
+        {/* Quick Actions */}
+        <div className="mt-6 bg-gray-100 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Quick Actions</h3>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+            >
+              Refresh Page
+            </button>
+            <button
+              onClick={() => {
+                fetch('/api/assets')
+                  .then(r => r.text())
+                  .then(text => {
+                    console.log('Manual test result:', text)
+                    alert(`Manual API test completed. Check console for details. Response length: ${text.length}`)
+                  })
+                  .catch(err => {
+                    console.error('Manual test failed:', err)
+                    alert(`Manual API test failed: ${err.message}`)
+                  })
+              }}
+              className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+            >
+              Test API Call
+            </button>
+            <a
+              href="/api/assets"
+              target="_blank"
+              className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700"
+            >
+              Open API in New Tab
+            </a>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

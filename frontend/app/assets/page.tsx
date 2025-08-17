@@ -1,26 +1,103 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import useSWR from 'swr'
-import { PlusIcon } from '@heroicons/react/24/outline'
-import { AssetFilters, SortConfig } from '@/lib/types'
-import { apiClient, swrConfig } from '@/lib/api-client'
-import { useAuth, canEditAssets } from '@/lib/use-auth'
-import AssetTable from '@/components/AssetTable'
-import SearchBar from '@/components/SearchBar'
-import Pagination from '@/components/Pagination'
-import { useDebounce } from '@/lib/use-debounce'
+import Link from 'next/link'
+import { format } from 'date-fns'
+import {
+  PlusIcon,
+  ServerIcon,
+  ComputerDesktopIcon,
+  DevicePhoneMobileIcon,
+  CircleStackIcon,
+  EyeIcon,
+  PencilIcon,
+  TrashIcon,
+  MagnifyingGlassIcon
+} from '@heroicons/react/24/outline'
+import { Asset, AssetType, AssetFilters, SortConfig } from '@/lib/types'
+import { clsx } from 'clsx'
 
-export default function AssetsPage() {
-  const { user } = useAuth()
-  const canEdit = canEditAssets(user)
+// Simple API client for this working version
+const apiClient = {
+  async getAssets(params: any = {}) {
+    try {
+      const searchParams = new URLSearchParams()
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') {
+          searchParams.append(key, String(value))
+        }
+      })
 
+      const url = `/api/assets?${searchParams.toString()}`
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      return result
+    } catch (error) {
+      console.error('Error fetching assets:', error)
+      throw error
+    }
+  }
+}
+
+// Simple debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
+}
+
+const getAssetTypeIcon = (type: AssetType) => {
+  switch (type) {
+    case 'server':
+      return ServerIcon
+    case 'workstation':
+      return ComputerDesktopIcon
+    case 'network':
+      return DevicePhoneMobileIcon
+    case 'storage':
+      return CircleStackIcon
+    default:
+      return ComputerDesktopIcon
+  }
+}
+
+const getStatusBadge = (status: string) => {
+  const colors = {
+    active: 'bg-green-100 text-green-800',
+    maintenance: 'bg-yellow-100 text-yellow-800',
+    retired: 'bg-red-100 text-red-800'
+  }
+
+  return (
+    <span className={clsx(
+      'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+      colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800'
+    )}>
+      {status}
+    </span>
+  )
+}
+
+export default function WorkingAssetsPage() {
   // State management
   const [searchTerm, setSearchTerm] = useState('')
-  const [filters, setFilters] = useState<AssetFilters>({})
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'updated_at', direction: 'desc' })
   const [currentPage, setCurrentPage] = useState(1)
-
   const debouncedSearch = useDebounce(searchTerm, 300)
 
   // Build API parameters
@@ -28,95 +105,45 @@ export default function AssetsPage() {
     page: currentPage,
     per_page: 20,
     search: debouncedSearch || undefined,
-    status: filters.status?.join(',') || undefined,
-    type: filters.type?.join(',') || undefined,
-    vendor: filters.vendor?.[0] || undefined,
-    sort_by: sortConfig.field,
-    sort_order: sortConfig.direction,
-  }), [currentPage, debouncedSearch, filters, sortConfig])
-
-  // Create cache key
-  const cacheKey = useMemo(() =>
-    ['assets', JSON.stringify(apiParams)],
-    [apiParams]
-  )
+  }), [currentPage, debouncedSearch])
 
   // Fetch data
-  const { data, error, isLoading, mutate } = useSWR(
-    cacheKey,
-    async () => {
-      const cleanParams = Object.fromEntries(
-        Object.entries(apiParams).filter(([, value]) => value !== undefined)
-      )
-      return await apiClient.getAssets(cleanParams)
-    },
+  const { data, error, isLoading } = useSWR(
+    ['assets', JSON.stringify(apiParams)],
+    () => apiClient.getAssets(apiParams),
     {
-      ...swrConfig,
-      keepPreviousData: true,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      errorRetryCount: 2
     }
   )
 
+  const assets = data?.data || []
+  const totalCount = data?.meta?.total || 0
+
   // Handle search
-  const handleSearch = (value: string) => {
-    setSearchTerm(value)
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value)
     setCurrentPage(1) // Reset to first page when searching
-  }
-
-  // Handle filters
-  const handleFilter = (newFilters: AssetFilters) => {
-    setFilters(newFilters)
-    setCurrentPage(1) // Reset to first page when filtering
-  }
-
-  // Handle sorting
-  const handleSort = (newSortConfig: SortConfig) => {
-    setSortConfig(newSortConfig)
-    setCurrentPage(1) // Reset to first page when sorting
-  }
-
-  // Handle pagination
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  // Handle edit asset (placeholder - would open modal or navigate to edit page)
-  const handleEditAsset = (asset: any) => {
-    console.log('Edit asset:', asset)
-    // TODO: Implement edit functionality
-  }
-
-  // Handle delete asset
-  const handleDeleteAsset = async (assetId: string) => {
-    if (!confirm('Are you sure you want to delete this asset?')) return
-
-    try {
-      await apiClient.deleteAsset(assetId)
-      mutate() // Refresh the data
-    } catch (error) {
-      console.error('Failed to delete asset:', error)
-      alert('Failed to delete asset. Please try again.')
-    }
   }
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto">
-        <div className="bg-red-50 border border-red-200 rounded-md p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
+      <div className="min-h-screen bg-gray-50 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <div className="text-red-600 mb-4">
+              Error loading assets: {error.message}
             </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">
-                Error loading assets
-              </h3>
-              <div className="mt-2 text-sm text-red-700">
-                <p>Failed to load asset data. Please check your connection and try again.</p>
-              </div>
-            </div>
+            <p className="text-gray-500 text-sm">
+              Make sure your backend API is running on the expected URL.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+            >
+              Retry
+            </button>
           </div>
         </div>
       </div>
@@ -124,74 +151,224 @@ export default function AssetsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Assets</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage your computer inventory and hardware assets
-          </p>
+    <div className="min-h-screen bg-gray-50 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="md:flex md:items-center md:justify-between mb-6">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
+              Assets
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Manage your IT assets, servers, workstations, and devices ({totalCount} total)
+            </p>
+          </div>
+          <div className="mt-4 flex md:ml-4 md:mt-0">
+            <button className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+              <PlusIcon className="-ml-0.5 mr-1.5 h-5 w-5" />
+              Add Asset
+            </button>
+          </div>
         </div>
 
-        {canEdit && (
-          <button
-            type="button"
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-          >
-            <PlusIcon className="h-4 w-4 mr-2" />
-            Add Asset
-          </button>
+        {/* Search */}
+        <div className="mb-6 bg-white shadow rounded-lg p-4">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="Search assets by hostname, serial, vendor..."
+              value={searchTerm}
+              onChange={handleSearch}
+            />
+          </div>
+        </div>
+
+        {/* Assets Table */}
+        <div className="bg-white shadow rounded-lg overflow-hidden">
+          {isLoading ? (
+            <div className="px-6 py-4 text-center">
+              <div className="text-gray-500">Loading assets...</div>
+            </div>
+          ) : assets.length === 0 ? (
+            <div className="text-center py-12">
+              <ServerIcon className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-900">
+                {searchTerm ? 'No assets found' : 'No assets'}
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {searchTerm
+                  ? `No assets match "${searchTerm}". Try a different search term.`
+                  : 'Get started by creating your first asset.'
+                }
+              </p>
+              {!searchTerm && (
+                <div className="mt-6">
+                  <button className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                    <PlusIcon className="-ml-0.5 mr-1.5 h-5 w-5" />
+                    Add your first asset
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Asset
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Vendor/Model
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Location
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Updated
+                    </th>
+                    <th className="relative px-6 py-3">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {assets.map((asset: Asset) => {
+                    const TypeIcon = getAssetTypeIcon(asset.type)
+
+                    return (
+                      <tr key={asset.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <TypeIcon className="h-8 w-8 text-gray-400" />
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">
+                                {asset.hostname}
+                              </div>
+                              {asset.fqdn && (
+                                <div className="text-sm text-gray-500">
+                                  {asset.fqdn}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900 capitalize">
+                            {asset.type}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {asset.vendor || 'Unknown'}
+                          </div>
+                          {asset.model && (
+                            <div className="text-sm text-gray-500">
+                              {asset.model}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {asset.location || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {getStatusBadge(asset.status)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {format(new Date(asset.updated_at), 'MMM d, yyyy')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end space-x-2">
+                            <Link
+                              href={`/assets/${asset.id}`}
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="View details"
+                            >
+                              <EyeIcon className="h-4 w-4" />
+                            </Link>
+                            <button
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="Edit asset"
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="text-red-600 hover:text-red-900"
+                              title="Delete asset"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Simple Pagination Info */}
+        {assets.length > 0 && (
+          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 mt-4 rounded-lg shadow">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <button
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Showing <span className="font-medium">1</span> to{' '}
+                  <span className="font-medium">{assets.length}</span> of{' '}
+                  <span className="font-medium">{totalCount}</span> results
+                </p>
+              </div>
+              <div>
+                <span className="text-sm text-gray-500">
+                  Page {currentPage}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Debug info (remove in production) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="text-sm text-yellow-800">
+              <strong>Debug Info:</strong>
+              <ul className="mt-2 space-y-1">
+                <li>• API URL: {typeof window !== 'undefined' ? `${window.location.origin}/api/assets` : '/api/assets'}</li>
+                <li>• Search term: "{searchTerm}"</li>
+                <li>• Loading: {isLoading.toString()}</li>
+                <li>• Assets found: {assets.length}</li>
+                <li>• Total count: {totalCount}</li>
+                <li>• Error: {error ? error.message : 'None'}</li>
+              </ul>
+            </div>
+          </div>
         )}
       </div>
-
-      {/* Search and Filters */}
-      <SearchBar
-        value={searchTerm}
-        onChange={handleSearch}
-        onFilter={handleFilter}
-        filters={filters}
-        placeholder="Search assets by hostname, serial number, or vendor..."
-        className="w-full"
-      />
-
-      {/* Results Summary */}
-      {data && (
-        <div className="flex items-center justify-between text-sm text-gray-700">
-          <p>
-            Showing {data.data.length} of {data.meta.total} assets
-            {debouncedSearch && (
-              <span className="ml-1">
-                for &ldquo;<strong>{debouncedSearch}</strong>&rdquo;
-              </span>
-            )}
-          </p>
-          <p>
-            Page {data.meta.page} of {data.meta.pages}
-          </p>
-        </div>
-      )}
-
-      {/* Asset Table */}
-      <AssetTable
-        assets={data?.data || []}
-        loading={isLoading}
-        onSort={handleSort}
-        sortConfig={sortConfig}
-        onEdit={canEdit ? handleEditAsset : undefined}
-        onDelete={canEdit ? handleDeleteAsset : undefined}
-      />
-
-      {/* Pagination */}
-      {data && data.meta.pages > 1 && (
-        <Pagination
-          currentPage={currentPage}
-          totalPages={data.meta.pages}
-          totalItems={data.meta.total}
-          itemsPerPage={data.meta.per_page}
-          onPageChange={handlePageChange}
-        />
-      )}
     </div>
   )
 }

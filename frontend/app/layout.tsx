@@ -1,58 +1,67 @@
-﻿import type { Metadata } from 'next'
+﻿// app/layout.tsx
+import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import { ConditionalAuthProvider, isAuthEnabled } from '@/lib/auth0-config'
-import Header from '@/components/Header'
+import EnhancedNavigation from '@/components/EnhancedNavigation'
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter'
+})
 
 export const metadata: Metadata = {
-  title: 'Computer Inventory System',
-  description: 'Track and manage computer assets, hardware specifications, and management controllers',
-  keywords: ['inventory', 'assets', 'computers', 'hardware', 'management'],
-  authors: [{ name: 'Computer Inventory System' }],
+  title: {
+    template: '%s | Computer Inventory System',
+    default: 'Computer Inventory System'
+  },
+  description: 'Track and manage IT assets, users, applications, and infrastructure inventory',
+  keywords: ['inventory', 'asset management', 'IT infrastructure', 'servers', 'hardware tracking'],
+  authors: [{ name: 'Your Organization' }],
+  creator: 'Computer Inventory System',
+  publisher: 'Your Organization',
+  robots: {
+    index: false, // Set to true in production if you want search indexing
+    follow: false,
+  },
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon-16x16.png',
+    apple: '/apple-touch-icon.png',
+  },
+  manifest: '/site.webmanifest',
 }
 
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
+  maximumScale: 1,
 }
 
-export default function RootLayout({
-  children,
-}: {
+interface RootLayoutProps {
   children: React.ReactNode
-}) {
-  return (
-    <html lang="en" className="h-full bg-gray-50">
-      <body className={`${inter.className} h-full`}>
-        <ConditionalAuthProvider>
-          <div className="min-h-screen bg-gray-50 flex flex-col">
-            <Header />
+}
 
-            <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+export default function RootLayout({ children }: RootLayoutProps) {
+  return (
+    <html lang="en" className={inter.variable}>
+      <body className={`${inter.className} antialiased bg-gray-50`}>
+        <div id="app-root" className="min-h-screen">
+          <EnhancedNavigation>
+            <main id="main-content">
               {children}
             </main>
+          </EnhancedNavigation>
+        </div>
 
-            <footer className="bg-white border-t border-gray-200 py-4">
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between items-center text-sm text-gray-500">
-                  <p>
-                    Computer Inventory System v{process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0'}
-                  </p>
-                  <div className="flex items-center space-x-4">
-                    {!isAuthEnabled && (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                        Development Mode
-                      </span>
-                    )}
-                    <p>&copy; 2025 Your Organization</p>
-                  </div>
-                </div>
-              </div>
-            </footer>
+        {/* Development tools */}
+        {process.env.NODE_ENV === 'development' && (
+          <div id="dev-tools" className="fixed bottom-4 right-4 z-50">
+            <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+              DEV MODE
+            </div>
           </div>
-        </ConditionalAuthProvider>
+        )}
       </body>
     </html>
   )
