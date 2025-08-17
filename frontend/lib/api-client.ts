@@ -1,6 +1,23 @@
-// lib/api-client.ts
+// lib/api-client.ts - Enhanced API Client
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import { Asset, ManagementController, AssetWithControllers, PaginationMeta } from './types';
+import {
+  Asset,
+  AssetWithDetails,
+  User,
+  Application,
+  ApplicationWithAssets,
+  ManagementController,
+  PaginationMeta,
+  AssetCreateRequest,
+  AssetUpdateRequest,
+  UserCreateRequest,
+  UserUpdateRequest,
+  ApplicationCreateRequest,
+  ApplicationUpdateRequest,
+  BulkAssetUpdate,
+  BulkApplicationAssignment,
+  UpsertResponse
+} from './types';
 import { isAuthEnabled } from './auth0-config';
 
 // API Response wrappers
@@ -14,9 +31,14 @@ export interface AssetListResponse {
   meta: PaginationMeta;
 }
 
-export interface UpsertResponse {
-  asset: Asset;
-  created: boolean;
+export interface UserListResponse {
+  data: User[];
+  meta: PaginationMeta;
+}
+
+export interface ApplicationListResponse {
+  data: Application[];
+  meta: PaginationMeta;
 }
 
 // API Client configuration
@@ -72,7 +94,10 @@ class ApiClient {
     );
   }
 
-  // Assets API
+  // =============================================================================
+  // ASSETS API (Enhanced)
+  // =============================================================================
+
   async getAssets(params: {
     page?: number;
     per_page?: number;
@@ -80,42 +105,28 @@ class ApiClient {
     status?: string;
     type?: string;
     vendor?: string;
+    owner_id?: string;
+    has_applications?: boolean;
+    has_notes?: boolean;
     sort_by?: string;
     sort_order?: 'asc' | 'desc';
   } = {}): Promise<AssetListResponse> {
-    const queryParams = new URLSearchParams();
-
-    // Convert page to skip
-    const page = params.page || 1;
-    const per_page = params.per_page || 20;
-    const skip = (page - 1) * per_page;
-
-    queryParams.append('skip', skip.toString());
-    queryParams.append('limit', per_page.toString());
-
-    if (params.search) queryParams.append('search', params.search);
-    if (params.status) queryParams.append('status', params.status);
-    if (params.type) queryParams.append('type', params.type);
-    if (params.vendor) queryParams.append('vendor', params.vendor);
-    if (params.sort_by) queryParams.append('sort_by', params.sort_by);
-    if (params.sort_order) queryParams.append('sort_order', params.sort_order);
-
-    const response = await this.client.get<AssetListResponse>(`/assets?${queryParams}`);
+    const response = await this.client.get('/assets', { params });
     return response.data;
   }
 
-  async getAsset(id: string): Promise<AssetWithControllers> {
-    const response = await this.client.get<AssetWithControllers>(`/assets/${id}`);
+  async getAsset(id: string): Promise<AssetWithDetails> {
+    const response = await this.client.get(`/assets/${id}`);
     return response.data;
   }
 
-  async upsertAsset(asset: Partial<Asset>): Promise<UpsertResponse> {
-    const response = await this.client.post<UpsertResponse>('/assets/upsert', asset);
+  async createAsset(data: AssetCreateRequest): Promise<Asset> {
+    const response = await this.client.post('/assets', data);
     return response.data;
   }
 
-  async updateAsset(id: string, updates: Partial<Asset>): Promise<Asset> {
-    const response = await this.client.patch<Asset>(`/assets/${id}`, updates);
+  async updateAsset(id: string, data: AssetUpdateRequest): Promise<Asset> {
+    const response = await this.client.patch(`/assets/${id}`, data);
     return response.data;
   }
 
@@ -123,14 +134,125 @@ class ApiClient {
     await this.client.delete(`/assets/${id}`);
   }
 
-  // Management Controllers API
-  async getAssetControllers(assetId: string): Promise<ManagementController[]> {
-    const response = await this.client.get<ManagementController[]>(`/assets/${assetId}/mgmt`);
+  async upsertAsset(data: AssetCreateRequest): Promise<UpsertResponse> {
+    const response = await this.client.post('/assets/upsert', data);
     return response.data;
   }
 
-  async addAssetController(assetId: string, controller: Partial<ManagementController>): Promise<ManagementController> {
-    const response = await this.client.post<ManagementController>(`/assets/${assetId}/mgmt`, controller);
+  // Bulk operations
+  async bulkUpdateAssets(data: BulkAssetUpdate): Promise<{ updated_count: number }> {
+    const response = await this.client.patch('/assets/bulk', data);
+    return response.data;
+  }
+
+  async bulkAssignApplication(data: BulkApplicationAssignment): Promise<{ assigned_count: number }> {
+    const response = await this.client.post('/assets/bulk-assign-application', data);
+    return response.data;
+  }
+
+  // =============================================================================
+  // USERS API (New)
+  // =============================================================================
+
+  async getUsers(params: {
+    skip?: number;
+    limit?: number;
+    search?: string;
+    active_only?: boolean;
+  } = {}): Promise<User[]> {
+    const response = await this.client.get('/users', { params });
+    return response.data;
+  }
+
+  async getUser(id: string): Promise<User> {
+    const response = await this.client.get(`/users/${id}`);
+    return response.data;
+  }
+
+  async createUser(data: UserCreateRequest): Promise<User> {
+    const response = await this.client.post('/users', data);
+    return response.data;
+  }
+
+  async updateUser(id: string, data: UserUpdateRequest): Promise<User> {
+    const response = await this.client.patch(`/users/${id}`, data);
+    return response.data;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await this.client.delete(`/users/${id}`);
+  }
+
+  async getUserAssets(userId: string, params: {
+    skip?: number;
+    limit?: number;
+  } = {}): Promise<Asset[]> {
+    const response = await this.client.get(`/users/${userId}/assets`, { params });
+    return response.data;
+  }
+
+  // =============================================================================
+  // APPLICATIONS API (New)
+  // =============================================================================
+
+  async getApplications(params: {
+    skip?: number;
+    limit?: number;
+    search?: string;
+    environment?: string;
+    status?: string;
+    criticality?: string;
+    has_assets?: boolean;
+  } = {}): Promise<Application[]> {
+    const response = await this.client.get('/applications', { params });
+    return response.data;
+  }
+
+  async getApplication(id: string): Promise<ApplicationWithAssets> {
+    const response = await this.client.get(`/applications/${id}`);
+    return response.data;
+  }
+
+  async createApplication(data: ApplicationCreateRequest): Promise<Application> {
+    const response = await this.client.post('/applications', data);
+    return response.data;
+  }
+
+  async updateApplication(id: string, data: ApplicationUpdateRequest): Promise<Application> {
+    const response = await this.client.patch(`/applications/${id}`, data);
+    return response.data;
+  }
+
+  async deleteApplication(id: string): Promise<void> {
+    await this.client.delete(`/applications/${id}`);
+  }
+
+  // Application-Asset associations
+  async addAssetToApplication(applicationId: string, assetId: string): Promise<void> {
+    await this.client.post(`/applications/${applicationId}/assets/${assetId}`);
+  }
+
+  async removeAssetFromApplication(applicationId: string, assetId: string): Promise<void> {
+    await this.client.delete(`/applications/${applicationId}/assets/${assetId}`);
+  }
+
+  // =============================================================================
+  // MANAGEMENT CONTROLLERS API (Unchanged)
+  // =============================================================================
+
+  async getAssetControllers(assetId: string): Promise<ManagementController[]> {
+    const response = await this.client.get(`/assets/${assetId}/mgmt`);
+    return response.data;
+  }
+
+  async addController(assetId: string, data: {
+    type: string;
+    address: string;
+    port?: number;
+    ui_url?: string;
+    credential_env_key?: string;
+  }): Promise<ManagementController> {
+    const response = await this.client.post(`/assets/${assetId}/mgmt`, data);
     return response.data;
   }
 
@@ -138,35 +260,39 @@ class ApiClient {
     await this.client.delete(`/mgmt/${controllerId}`);
   }
 
-  // Health check
-  async healthCheck(): Promise<{ status: string; timestamp: string }> {
-    const response = await this.client.get<{ status: string; timestamp: string }>('/health');
+  // =============================================================================
+  // UTILITY METHODS
+  // =============================================================================
+
+  async healthCheck(): Promise<{ status: string; version: string }> {
+    const response = await this.client.get('/health');
     return response.data;
   }
 
-  // Generic request method for custom API calls
-  async request<T>(config: AxiosRequestConfig): Promise<T> {
-    const response = await this.client.request<T>(config);
+  async getOpenApiSchema(): Promise<any> {
+    const response = await this.client.get('/openapi.json');
     return response.data;
   }
 }
 
-// Export singleton instance
+// Create and export singleton instance
 export const apiClient = new ApiClient();
 
-// SWR fetcher function
-export const fetcher = async (url: string) => {
-  const response = await apiClient.request({ url });
-  return response;
-};
-
-// SWR configuration
+// SWR configuration for consistent data fetching
 export const swrConfig = {
   revalidateOnFocus: false,
   revalidateOnReconnect: true,
   shouldRetryOnError: false,
+  errorRetryCount: 2,
   errorRetryInterval: 5000,
-  dedupingInterval: 2000,
+  dedupingInterval: 5000,
 };
 
+// Helper function for SWR key generation
+export const generateSWRKey = (endpoint: string, params?: Record<string, any>) => {
+  if (!params) return [endpoint];
+  return [endpoint, JSON.stringify(params)];
+};
+
+// Export everything
 export default apiClient;

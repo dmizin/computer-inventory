@@ -1,30 +1,18 @@
 // app/api/[...path]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { getAccessToken, withApiAuthRequired } from '@auth0/nextjs-auth0'
-import { isAuthEnabled } from '@/lib/auth0-config'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// Get the backend API URL from environment variables
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8000'
 
 // Helper function to create headers
-async function createHeaders(request: NextRequest) {
+function createHeaders(request: NextRequest) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
 
-  // Add authentication if enabled
-  if (isAuthEnabled) {
-    try {
-      const { accessToken } = await getAccessToken(request, NextResponse.next())
-      if (accessToken) {
-        headers.Authorization = `Bearer ${accessToken}`
-      }
-    } catch (error) {
-      console.warn('Failed to get access token for API request:', error)
-    }
-  }
-
   // Copy relevant headers from the original request
   const relevantHeaders = [
+    'authorization',
     'accept',
     'accept-language',
     'cache-control',
@@ -41,7 +29,7 @@ async function createHeaders(request: NextRequest) {
   return headers
 }
 
-// Generic proxy handler
+// Generic proxy handler for all HTTP methods
 async function handleRequest(
   request: NextRequest,
   { params }: { params: { path: string[] } }
@@ -52,8 +40,10 @@ async function handleRequest(
   // Build target URL
   const targetUrl = `${API_BASE_URL}/api/v1/${path}${url.search}`
 
+  console.log(`[API Proxy] ${request.method} ${request.url} -> ${targetUrl}`)
+
   try {
-    const headers = await createHeaders(request)
+    const headers = createHeaders(request)
 
     // Prepare request options
     const requestOptions: RequestInit = {
@@ -63,7 +53,14 @@ async function handleRequest(
 
     // Add body for non-GET requests
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      requestOptions.body = await request.text()
+      try {
+        const body = await request.text()
+        if (body) {
+          requestOptions.body = body
+        }
+      } catch (error) {
+        console.warn('[API Proxy] Could not read request body:', error)
+      }
     }
 
     // Make the request to the backend
@@ -78,6 +75,9 @@ async function handleRequest(
       'cache-control',
       'etag',
       'last-modified',
+      'access-control-allow-origin',
+      'access-control-allow-methods',
+      'access-control-allow-headers',
     ]
 
     headersToInclude.forEach(headerName => {
@@ -87,15 +87,26 @@ async function handleRequest(
       }
     })
 
-    // Add CORS headers for development
-    if (process.env.NODE_ENV === 'development') {
-      responseHeaders.set('Access-Control-Allow-Origin', '*')
-      responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-      responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    // Handle different response types
+    const contentType = response.headers.get('content-type')
+    let responseBody
+
+    if (contentType?.includes('application/json')) {
+      try {
+        const jsonData = await response.text()
+        responseBody = jsonData
+      } catch (error) {
+        console.error('[API Proxy] Error reading JSON response:', error)
+        responseBody = JSON.stringify({
+          error: 'Failed to parse response from backend',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+    } else {
+      responseBody = await response.text()
     }
 
-    // Get response body
-    const responseBody = await response.text()
+    console.log(`[API Proxy] Response: ${response.status} ${response.statusText}`)
 
     return new NextResponse(responseBody, {
       status: response.status,
@@ -104,55 +115,45 @@ async function handleRequest(
     })
 
   } catch (error) {
-    console.error('API proxy error:', error)
+    console.error('[API Proxy] Request failed:', error)
 
-    return NextResponse.json(
-      {
-        error: 'Internal server error',
-        message: 'Failed to proxy request to backend API',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      },
-      { status: 500 }
-    )
-  }
-}
-
-// Create authenticated or open handlers based on auth configuration
-const createHandler = (method: string) => {
-  const baseHandler = (request: NextRequest, context: any) => {
-    if (request.method !== method) {
-      return NextResponse.json(
-        { error: 'Method not allowed' },
-        { status: 405 }
-      )
+    const errorResponse = {
+      error: 'Backend API unavailable',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      target_url: targetUrl,
+      timestamp: new Date().toISOString()
     }
-    return handleRequest(request, context)
-  }
 
-  // For mutation operations (POST, PATCH, DELETE), require authentication if enabled
-  if (isAuthEnabled && ['POST', 'PATCH', 'DELETE'].includes(method)) {
-    return withApiAuthRequired(baseHandler)
+    return NextResponse.json(errorResponse, {
+      status: 502,
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
   }
-
-  return baseHandler
 }
 
-// Export all HTTP methods
-export const GET = createHandler('GET')
-export const POST = createHandler('POST')
-export const PATCH = createHandler('PATCH')
-export const PUT = createHandler('PUT')
-export const DELETE = createHandler('DELETE')
+// Export handlers for all HTTP methods
+export async function GET(request: NextRequest, context: { params: { path: string[] } }) {
+  return handleRequest(request, context)
+}
 
-// Handle OPTIONS for CORS
-export async function OPTIONS(_request: NextRequest) {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    },
-  })
+export async function POST(request: NextRequest, context: { params: { path: string[] } }) {
+  return handleRequest(request, context)
+}
+
+export async function PATCH(request: NextRequest, context: { params: { path: string[] } }) {
+  return handleRequest(request, context)
+}
+
+export async function PUT(request: NextRequest, context: { params: { path: string[] } }) {
+  return handleRequest(request, context)
+}
+
+export async function DELETE(request: NextRequest, context: { params: { path: string[] } }) {
+  return handleRequest(request, context)
+}
+
+export async function OPTIONS(request: NextRequest, context: { params: { path: string[] } }) {
+  return handleRequest(request, context)
 }
