@@ -1,7 +1,8 @@
 ﻿"""
-SQLAlchemy models for Computer Inventory System
+Enhanced SQLAlchemy models for Computer Inventory System
+Adds: User/Owner tracking, Notes, Application-to-Server mapping
 """
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, CheckConstraint
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, Text, CheckConstraint, Table
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -10,9 +11,49 @@ from datetime import datetime
 from .database import Base
 
 
+# Association table for many-to-many relationship between applications and assets
+application_assets = Table(
+    'application_assets',
+    Base.metadata,
+    Column('application_id', UUID(as_uuid=True), ForeignKey('applications.id'), primary_key=True),
+    Column('asset_id', UUID(as_uuid=True), ForeignKey('assets.id'), primary_key=True),
+    Column('created_at', DateTime(timezone=True), default=func.now())
+)
+
+
+class User(Base):
+    """
+    System users/owners for asset assignment
+    """
+    __tablename__ = "users"
+
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, index=True)
+
+    # User information
+    username = Column(String(100), nullable=False, unique=True, index=True)
+    full_name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True, index=True)
+    department = Column(String(100), nullable=True)
+    title = Column(String(100), nullable=True)
+
+    # Status
+    active = Column(Boolean, nullable=False, default=True, index=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    owned_assets = relationship("Asset", back_populates="primary_owner")
+
+    def __repr__(self):
+        return f"<User(id={self.id}, username={self.username}, full_name={self.full_name})>"
+
+
 class Asset(Base):
     """
-    Core inventory asset model
+    Core inventory asset model - ENHANCED
     Represents physical servers, workstations, and other hardware
     """
     __tablename__ = "assets"
@@ -46,11 +87,23 @@ class Asset(Base):
     location = Column(String(255), nullable=True)
     specs = Column(JSONB, nullable=False, default=dict)  # Flexible hardware specs
 
+    # NEW FIELDS - Enhanced functionality
+    # Primary owner/user assignment
+    primary_owner_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # Free-form notes field
+    notes = Column(Text, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
 
-    # 1Password integration
+    # 1Password integration (existing)
     onepassword_secret_id = Column(String(255), nullable=True, index=True)
     onepassword_vault_id = Column(String(255), nullable=True)
 
@@ -61,13 +114,94 @@ class Asset(Base):
         cascade="all, delete-orphan"
     )
 
+    # NEW RELATIONSHIPS
+    primary_owner = relationship("User", back_populates="owned_assets")
+    applications = relationship(
+        "Application",
+        secondary=application_assets,
+        back_populates="assets"
+    )
+
     def __repr__(self):
         return f"<Asset(id={self.id}, hostname={self.hostname}, type={self.type})>"
 
 
+class Application(Base):
+    """
+    Applications/Services running on assets
+    Maps applications to one or more servers
+    """
+    __tablename__ = "applications"
+
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, index=True)
+
+    # Application information
+    name = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    access_url = Column(String(500), nullable=True)
+    internal_url = Column(String(500), nullable=True)  # For internal access
+
+    # Application metadata
+    environment = Column(
+        String(50),
+        CheckConstraint("environment IN ('production', 'staging', 'development', 'testing')"),
+        nullable=False,
+        default='production',
+        index=True
+    )
+
+    application_type = Column(String(100), nullable=True)  # e.g., "web service", "database", "dns"
+    version = Column(String(50), nullable=True)
+    port = Column(Integer, nullable=True)
+
+    # Status
+    status = Column(
+        String(50),
+        CheckConstraint("status IN ('active', 'inactive', 'maintenance', 'deprecated')"),
+        nullable=False,
+        default='active',
+        index=True
+    )
+
+    # Contact information
+    primary_contact_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # Additional metadata
+    notes = Column(Text, nullable=True)
+    criticality = Column(
+        String(20),
+        CheckConstraint("criticality IN ('low', 'medium', 'high', 'critical')"),
+        nullable=False,
+        default='medium',
+        index=True
+    )
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    assets = relationship(
+        "Asset",
+        secondary=application_assets,
+        back_populates="applications"
+    )
+
+    primary_contact = relationship("User")
+
+    def __repr__(self):
+        return f"<Application(id={self.id}, name={self.name}, environment={self.environment})>"
+
+
 class ManagementController(Base):
     """
-    Out-of-band management controllers (iLO, iDRAC, IPMI, etc.)
+    Out-of-band management controllers (iLO, iDRAC, IPMI, etc.) - UNCHANGED
     """
     __tablename__ = "management_controllers"
 
@@ -96,7 +230,7 @@ class ManagementController(Base):
     # Timestamp
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
 
-    # Credential storage options
+    # Credential storage options (existing)
     credential_onepassword_ref = Column(String(255), nullable=True)
     use_asset_credentials = Column(Boolean, nullable=False, default=False)
 
@@ -109,7 +243,7 @@ class ManagementController(Base):
 
 class AuditLog(Base):
     """
-    Audit log for tracking changes to resources
+    Audit log for tracking changes to resources - UNCHANGED
     """
     __tablename__ = "audit_logs"
 
@@ -118,7 +252,7 @@ class AuditLog(Base):
 
     # Audit information
     action = Column(String(50), nullable=False)  # CREATE, UPDATE, DELETE
-    resource_type = Column(String(50), nullable=False, index=True)  # asset, management_controller
+    resource_type = Column(String(50), nullable=False, index=True)  # asset, management_controller, application, user
     resource_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     changes = Column(JSONB, nullable=True)  # What changed (for updates)
     api_key_id = Column(UUID(as_uuid=True), nullable=True, index=True)  # Which API key made the change
@@ -132,7 +266,7 @@ class AuditLog(Base):
 
 class ApiKey(Base):
     """
-    API keys for authentication
+    API keys for authentication - UNCHANGED
     """
     __tablename__ = "api_keys"
 
@@ -149,24 +283,3 @@ class ApiKey(Base):
 
     def __repr__(self):
         return f"<ApiKey(id={self.id}, name={self.name}, active={self.active})>"
-
-
-# Database indexes for better performance
-# These are created automatically by SQLAlchemy based on index=True parameters above
-# Additional composite indexes can be added here if needed
-
-"""
-Additional indexes for performance (if needed in the future):
-
-from sqlalchemy import Index
-
-# Composite index for asset search
-asset_search_idx = Index('ix_assets_search', Asset.hostname, Asset.serial_number, Asset.vendor)
-
-# Composite index for audit logs by resource
-audit_resource_idx = Index('ix_audit_resource', AuditLog.resource_type, AuditLog.resource_id)
-
-# Time-based index for audit logs
-audit_time_idx = Index('ix_audit_time', AuditLog.timestamp.desc())
-"""
-

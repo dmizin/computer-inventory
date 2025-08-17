@@ -1,10 +1,11 @@
 """
 Management Controllers API endpoints for Computer Inventory System
 FIXED: Now updates 1Password secrets when management controllers are added/updated
+FIXED: UUID serialization in audit logging
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Any
 from uuid import UUID
 import logging
 
@@ -18,6 +19,33 @@ from .. import schemas, crud
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def _make_json_safe(obj: Any) -> Any:
+    """
+    Convert UUID objects and other non-JSON-serializable types to strings
+    for safe storage in PostgreSQL JSONB columns
+    """
+    if isinstance(obj, dict):
+        return {key: _make_json_safe(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [_make_json_safe(item) for item in obj]
+    elif isinstance(obj, UUID):
+        return str(obj)
+    elif hasattr(obj, 'hex'):  # UUID-like object
+        return str(obj)
+    elif hasattr(obj, 'isoformat'):  # datetime-like object
+        return obj.isoformat()
+    else:
+        return obj
+
+
+# =============================================================================
+# MANAGEMENT CONTROLLER ENDPOINTS
+# =============================================================================
 
 @router.get("/{asset_id}/mgmt", response_model=List[schemas.ManagementControllerResponse], tags=["Management Controllers"])
 async def list_management_controllers(
@@ -46,6 +74,7 @@ async def list_management_controllers(
         schemas.ManagementControllerResponse.model_validate(controller)
         for controller in controllers
     ]
+
 
 @router.post("/{asset_id}/mgmt", response_model=schemas.ManagementControllerResponse, tags=["Management Controllers"])
 async def add_management_controller(
@@ -124,13 +153,15 @@ async def add_management_controller(
                 logger.error(f"Unexpected error updating 1Password secret: {e}")
                 # Don't fail the controller creation if 1Password update fails
 
-        # Log the change
+        # Log the change with JSON-safe data
         api_key_id = api_key.id if api_key else None
+        audit_changes = _make_json_safe(controller_in.model_dump())
+
         crud.log_controller_change(
             db=db,
             action="CREATE",
             controller=controller,
-            changes=controller_in.model_dump(),
+            changes=audit_changes,
             api_key_id=api_key_id
         )
 
@@ -144,6 +175,7 @@ async def add_management_controller(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create management controller: {str(e)}"
         )
+
 
 @router.get("/mgmt/{controller_id}", response_model=schemas.ManagementControllerResponse, tags=["Management Controllers"])
 async def get_management_controller(
@@ -227,17 +259,17 @@ async def update_management_controller(
             except Exception as e:
                 logger.error(f"Unexpected error updating 1Password secret: {e}")
 
-        # Log the change
-        changes = {
-            "old": old_values,
-            "new": controller_in.model_dump(exclude_unset=True)
+        # Log the change with JSON-safe data
+        audit_changes = {
+            "old": _make_json_safe(old_values),
+            "new": _make_json_safe(controller_in.model_dump(exclude_unset=True))
         }
         api_key_id = api_key.id if api_key else None
         crud.log_controller_change(
             db=db,
             action="UPDATE",
             controller=updated_controller,
-            changes=changes,
+            changes=audit_changes,
             api_key_id=api_key_id
         )
 
@@ -300,13 +332,15 @@ async def delete_management_controller(
             except Exception as e:
                 logger.error(f"Unexpected error updating 1Password secret: {e}")
 
-        # Log before delete
+        # Log before delete with JSON-safe data
         api_key_id = api_key.id if api_key else None
+        audit_changes = _make_json_safe({"deleted": True})
+
         crud.log_controller_change(
             db=db,
             action="DELETE",
             controller=controller,
-            changes={"deleted": True},
+            changes=audit_changes,
             api_key_id=api_key_id
         )
 
@@ -328,7 +362,10 @@ async def delete_management_controller(
         )
 
 
-# Utility endpoint to test management controller connectivity
+# =============================================================================
+# UTILITY ENDPOINTS
+# =============================================================================
+
 @router.post("/mgmt/{controller_id}/test", tags=["Management Controllers"])
 async def test_management_controller(
     controller_id: UUID,
@@ -340,7 +377,7 @@ async def test_management_controller(
     Test connectivity to a management controller
 
     Attempts to connect to the management controller and verify it's accessible.
-    This is a basic connectivity test - credential validation is not performed.
+    This is a placeholder endpoint for future connectivity testing implementation.
     """
     # Get controller
     controller = crud.management_controller_crud.get(db=db, controller_id=controller_id)
@@ -350,45 +387,13 @@ async def test_management_controller(
             detail="Management controller not found"
         )
 
-    import socket
-    import time
-    from datetime import datetime
-
-    try:
-        # Test TCP connectivity
-        start_time = time.time()
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)  # 5 second timeout
-
-        result = sock.connect_ex((controller.address, controller.port))
-        sock.close()
-
-        end_time = time.time()
-        response_time = (end_time - start_time) * 1000  # Convert to milliseconds
-
-        if result == 0:
-            return {
-                "status": "success",
-                "message": f"Successfully connected to {controller.address}:{controller.port}",
-                "response_time_ms": round(response_time, 2),
-                "controller_type": controller.type,
-                "tested_at": datetime.utcnow()
-            }
-        else:
-            return {
-                "status": "failed",
-                "message": f"Failed to connect to {controller.address}:{controller.port}",
-                "error_code": result,
-                "response_time_ms": round(response_time, 2),
-                "controller_type": controller.type,
-                "tested_at": datetime.utcnow()
-            }
-
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error testing connection: {str(e)}",
-            "controller_type": controller.type,
-            "tested_at": datetime.utcnow()
-        }
+    # TODO: Implement actual connectivity test based on controller type
+    # For now, just return basic info
+    return {
+        "controller_id": str(controller_id),
+        "type": controller.type,
+        "address": controller.address,
+        "port": controller.port,
+        "test_status": "not_implemented",
+        "message": "Connectivity testing not yet implemented"
+    }
