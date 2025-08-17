@@ -1,8 +1,9 @@
+// components/ApplicationSelector.tsx - Fixed imports
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { ChevronUpDownIcon, CheckIcon, RectangleStackIcon } from '@heroicons/react/24/outline'
-import { Application, APPLICATION_ENVIRONMENTS, CRITICALITY_LEVELS } from '@/lib/types'
+import { Application, ENVIRONMENTS, CRITICALITY_LEVELS } from '@/lib/types'
 import { apiClient } from '@/lib/api-client'
 import { clsx } from 'clsx'
 
@@ -134,7 +135,7 @@ export default function ApplicationSelector({
 
   // Get badge colors for environment and criticality
   const getEnvironmentBadge = (environment: string) => {
-    const envConfig = APPLICATION_ENVIRONMENTS.find(e => e.value === environment)
+    const envConfig = ENVIRONMENTS.find(e => e.value === environment)
     return envConfig ? envConfig.color : 'gray'
   }
 
@@ -162,151 +163,144 @@ export default function ApplicationSelector({
           <RectangleStackIcon className="h-5 w-5 flex-shrink-0 text-gray-400" />
 
           {selectedApplications.length > 0 ? (
-            <div className="ml-2 flex flex-wrap gap-1">
-              {selectedApplications.map((app) => (
+            <div className="flex flex-wrap items-center gap-1 ml-2">
+              {selectedApplications.slice(0, 2).map((app) => (
                 <span
                   key={app.id}
-                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800"
+                  className="inline-flex items-center px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-md"
                 >
                   {app.name}
                   {multiple && (
                     <button
+                      type="button"
                       onClick={(e) => removeApplication(app.id, e)}
-                      className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full text-indigo-600 hover:bg-indigo-200 hover:text-indigo-800"
+                      className="ml-1 text-indigo-500 hover:text-indigo-700"
                     >
                       ×
                     </button>
                   )}
                 </span>
               ))}
+              {selectedApplications.length > 2 && (
+                <span className="text-xs text-gray-500">
+                  +{selectedApplications.length - 2} more
+                </span>
+              )}
             </div>
           ) : (
-            <span className="ml-2 block truncate text-gray-500">
-              {placeholder}
-            </span>
-          )}
-
-          {value.length > 0 && (
-            <button
-              onClick={handleClear}
-              className="ml-auto mr-8 text-gray-400 hover:text-gray-600"
-            >
-              Clear all
-            </button>
+            <span className="ml-2 text-gray-500">{placeholder}</span>
           )}
         </div>
 
-        <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+        <span className="absolute inset-y-0 right-0 flex items-center pr-2">
           <ChevronUpDownIcon className="h-5 w-5 text-gray-400" />
         </span>
       </button>
 
+      {/* Clear button for multiple selections */}
+      {multiple && selectedApplications.length > 0 && !disabled && (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="absolute inset-y-0 right-8 flex items-center pr-2 text-gray-400 hover:text-gray-600"
+        >
+          <span className="text-sm">×</span>
+        </button>
+      )}
+
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute z-10 mt-1 max-h-80 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-          {/* Search Input */}
-          <div className="sticky top-0 bg-white border-b border-gray-200 px-3 py-2">
+        <div className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md border border-gray-300 py-1 text-base overflow-auto focus:outline-none sm:text-sm">
+          {/* Search input */}
+          <div className="sticky top-0 bg-white p-2 border-b border-gray-200">
             <input
               ref={searchInputRef}
               type="text"
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="Search applications..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
 
-          {/* Selection Info */}
-          {multiple && (
-            <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-b">
-              {value.length} selected
-              {maxSelections && ` (max ${maxSelections})`}
-            </div>
-          )}
-
-          {/* Loading State */}
+          {/* Loading state */}
           {loading && (
-            <div className="px-3 py-2 text-sm text-gray-500 text-center">
+            <div className="px-3 py-2 text-sm text-gray-500">
               Loading applications...
             </div>
           )}
 
-          {/* Error State */}
+          {/* Error state */}
           {error && (
-            <div className="px-3 py-2 text-sm text-red-600 text-center">
+            <div className="px-3 py-2 text-sm text-red-600">
               {error}
             </div>
           )}
 
-          {/* Application Options */}
-          {!loading && !error && (
-            <>
-              {applications.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                  {search ? 'No applications found' : 'No applications available'}
-                </div>
-              ) : (
-                applications.map((app) => {
-                  const isSelected = value.includes(app.id)
-                  const isMaxed = maxSelections && value.length >= maxSelections && !isSelected
+          {/* No results */}
+          {!loading && !error && applications.length === 0 && (
+            <div className="px-3 py-2 text-sm text-gray-500">
+              No applications found
+            </div>
+          )}
 
-                  return (
-                    <button
-                      key={app.id}
-                      onClick={() => handleSelect(app.id)}
-                      disabled={isMaxed}
-                      className={clsx(
-                        'relative cursor-default select-none py-2 pl-3 pr-9 text-gray-900 w-full text-left',
-                        isMaxed
-                          ? 'opacity-50 cursor-not-allowed'
-                          : 'hover:bg-indigo-600 hover:text-white',
-                        isSelected && 'bg-indigo-600 text-white'
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="block truncate font-medium">
-                            {app.name}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className={clsx(
-                              'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium',
-                              isSelected ? 'bg-white bg-opacity-20' : 'bg-gray-100 text-gray-800'
-                            )}>
-                              {app.environment}
-                            </span>
-                            <span className={clsx(
-                              'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium',
-                              isSelected ? 'bg-white bg-opacity-20' : 'bg-gray-100 text-gray-800'
-                            )}>
-                              {app.criticality}
-                            </span>
-                            {app.asset_count > 0 && (
-                              <span className={clsx(
-                                'text-xs opacity-75',
-                                isSelected ? 'text-white' : 'text-gray-500'
-                              )}>
-                                {app.asset_count} servers
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {isSelected && (
-                          <CheckIcon className="h-5 w-5 flex-shrink-0 ml-2" />
-                        )}
+          {/* Application options */}
+          {!loading && !error && applications.length > 0 && (
+            <div className="max-h-40 overflow-y-auto">
+              {applications.map((application) => (
+                <div
+                  key={application.id}
+                  onClick={() => handleSelect(application.id)}
+                  className={clsx(
+                    'cursor-pointer select-none relative px-3 py-2 hover:bg-indigo-50',
+                    value.includes(application.id) && 'bg-indigo-100'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">
+                        {application.name}
                       </div>
-                    </button>
-                  )
-                })
-              )}
-            </>
+                      <div className="text-xs text-gray-500 truncate">
+                        {application.description || 'No description'}
+                      </div>
+                      <div className="flex items-center mt-1 space-x-2">
+                        <span
+                          className={clsx(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
+                            getEnvironmentBadge(application.environment) === 'blue' && 'bg-blue-100 text-blue-800',
+                            getEnvironmentBadge(application.environment) === 'yellow' && 'bg-yellow-100 text-yellow-800',
+                            getEnvironmentBadge(application.environment) === 'red' && 'bg-red-100 text-red-800',
+                            getEnvironmentBadge(application.environment) === 'gray' && 'bg-gray-100 text-gray-800'
+                          )}
+                        >
+                          {application.environment}
+                        </span>
+                        <span
+                          className={clsx(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
+                            getCriticalityBadge(application.criticality) === 'green' && 'bg-green-100 text-green-800',
+                            getCriticalityBadge(application.criticality) === 'yellow' && 'bg-yellow-100 text-yellow-800',
+                            getCriticalityBadge(application.criticality) === 'orange' && 'bg-orange-100 text-orange-800',
+                            getCriticalityBadge(application.criticality) === 'red' && 'bg-red-100 text-red-800',
+                            getCriticalityBadge(application.criticality) === 'gray' && 'bg-gray-100 text-gray-800'
+                          )}
+                        >
+                          {application.criticality}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Selection indicator */}
+                    {value.includes(application.id) && (
+                      <CheckIcon className="h-5 w-5 text-indigo-600" />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
-      )}
-
-      {/* Validation Error */}
-      {error && (
-        <p className="mt-1 text-sm text-red-600">{error}</p>
       )}
     </div>
   )
