@@ -17,7 +17,7 @@ import {
 import { clsx } from 'clsx'
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: HomeIcon },
+  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
   { name: 'Assets', href: '/assets', icon: ServerIcon },
   { name: 'Users', href: '/users', icon: UserIcon },
   { name: 'Applications', href: '/applications', icon: RectangleStackIcon },

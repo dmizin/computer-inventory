@@ -1,49 +1,18 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
-import useSWR from 'swr'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { format } from 'date-fns'
+import useSWR from 'swr'
 import {
-  PlusIcon,
   ServerIcon,
   ComputerDesktopIcon,
   DevicePhoneMobileIcon,
   CircleStackIcon,
-  EyeIcon,
-  PencilIcon,
-  TrashIcon,
   MagnifyingGlassIcon
 } from '@heroicons/react/24/outline'
-import { Asset, AssetType, AssetFilters, SortConfig } from '@/lib/types'
-import { clsx } from 'clsx'
-
-// Simple API client for this working version
-const apiClient = {
-  async getAssets(params: any = {}) {
-    try {
-      const searchParams = new URLSearchParams()
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== '') {
-          searchParams.append(key, String(value))
-        }
-      })
-
-      const url = `/api/assets?${searchParams.toString()}`
-      const response = await fetch(url)
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const result = await response.json()
-      return result
-    } catch (error) {
-      console.error('Error fetching assets:', error)
-      throw error
-    }
-  }
-}
+import clsx from 'clsx'
+import { apiClient } from '../../lib/api-client'
+import type { Asset, AssetType } from '../../lib/types'
 
 // Simple debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -94,7 +63,7 @@ const getStatusBadge = (status: string) => {
   )
 }
 
-export default function WorkingAssetsPage() {
+export default function AssetsPage() {
   // State management
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -107,7 +76,7 @@ export default function WorkingAssetsPage() {
     search: debouncedSearch || undefined,
   }), [currentPage, debouncedSearch])
 
-  // Fetch data
+  // Fetch data using the proper apiClient
   const { data, error, isLoading } = useSWR(
     ['assets', JSON.stringify(apiParams)],
     () => apiClient.getAssets(apiParams),
@@ -131,19 +100,21 @@ export default function WorkingAssetsPage() {
     return (
       <div className="min-h-screen bg-gray-50 py-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <div className="text-red-600 mb-4">
-              Error loading assets: {error.message}
+          <div className="bg-red-50 border border-red-200 rounded-md p-4">
+            <div className="text-red-800">
+              <strong>Error loading assets:</strong> {error.message}
             </div>
-            <p className="text-gray-500 text-sm">
-              Make sure your backend API is running on the expected URL.
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-            >
-              Retry
-            </button>
+            <div className="text-red-600 text-sm mt-2">
+              Please check that your backend API is running and accessible.
+            </div>
+            <div className="mt-4">
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-red-100 hover:bg-red-200 px-4 py-2 rounded text-red-800 text-sm"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -154,67 +125,76 @@ export default function WorkingAssetsPage() {
     <div className="min-h-screen bg-gray-50 py-6">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="md:flex md:items-center md:justify-between mb-6">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
-              Assets
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Manage your IT assets, servers, workstations, and devices ({totalCount} total)
+        <div className="sm:flex sm:items-center mb-6">
+          <div className="sm:flex-auto">
+            <h1 className="text-2xl font-semibold text-gray-900">Assets</h1>
+            <p className="mt-2 text-sm text-gray-700">
+              Manage your server and workstation inventory
             </p>
           </div>
-          <div className="mt-4 flex md:ml-4 md:mt-0">
-            <button className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
-              <PlusIcon className="-ml-0.5 mr-1.5 h-5 w-5" />
+          <div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
+            <Link
+              href="/assets/new"
+              className="block rounded-md bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
               Add Asset
-            </button>
+            </Link>
           </div>
         </div>
 
-        {/* Search */}
-        <div className="mb-6 bg-white shadow rounded-lg p-4">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+        {/* Search Bar */}
+        <div className="mb-6">
+          <div className="max-w-lg">
+            <div className="relative rounded-md shadow-sm">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" aria-hidden="true" />
+              </div>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={handleSearch}
+                className="block w-full rounded-md border-0 py-1.5 pl-10 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                placeholder="Search by hostname, serial number, or vendor..."
+              />
             </div>
-            <input
-              type="text"
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="Search assets by hostname, serial, vendor..."
-              value={searchTerm}
-              onChange={handleSearch}
-            />
           </div>
         </div>
 
-        {/* Assets Table */}
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          {isLoading ? (
-            <div className="px-6 py-4 text-center">
+        {/* Loading State */}
+        {isLoading && (
+          <div className="bg-white shadow rounded-lg">
+            <div className="px-6 py-12 text-center">
               <div className="text-gray-500">Loading assets...</div>
             </div>
-          ) : assets.length === 0 ? (
-            <div className="text-center py-12">
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!isLoading && assets.length === 0 && (
+          <div className="bg-white shadow rounded-lg">
+            <div className="px-6 py-12 text-center">
               <ServerIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">
-                {searchTerm ? 'No assets found' : 'No assets'}
-              </h3>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No assets found</h3>
               <p className="mt-1 text-sm text-gray-500">
-                {searchTerm
-                  ? `No assets match "${searchTerm}". Try a different search term.`
-                  : 'Get started by creating your first asset.'
-                }
+                {searchTerm ? 'Try adjusting your search terms.' : 'Get started by adding your first asset.'}
               </p>
               {!searchTerm && (
                 <div className="mt-6">
-                  <button className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
-                    <PlusIcon className="-ml-0.5 mr-1.5 h-5 w-5" />
-                    Add your first asset
-                  </button>
+                  <Link
+                    href="/assets/new"
+                    className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+                  >
+                    Add Asset
+                  </Link>
                 </div>
               )}
             </div>
-          ) : (
+          </div>
+        )}
+
+        {/* Assets Table */}
+        {!isLoading && assets.length > 0 && (
+          <div className="bg-white shadow overflow-hidden sm:rounded-lg">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -234,23 +214,21 @@ export default function WorkingAssetsPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Updated
-                    </th>
                     <th className="relative px-6 py-3">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {assets.map((asset: Asset) => {
-                    const TypeIcon = getAssetTypeIcon(asset.type)
-
+                  {assets.map((asset) => {
+                    const IconComponent = getAssetTypeIcon(asset.type)
                     return (
-                      <tr key={asset.id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={asset.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <TypeIcon className="h-8 w-8 text-gray-400" />
+                            <div className="flex-shrink-0 h-10 w-10">
+                              <IconComponent className="h-10 w-10 text-gray-400" />
+                            </div>
                             <div className="ml-4">
                               <div className="text-sm font-medium text-gray-900">
                                 {asset.hostname}
@@ -263,52 +241,32 @@ export default function WorkingAssetsPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 capitalize">
-                            {asset.type}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <span className="capitalize">{asset.type}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <div>
+                            {asset.vendor && (
+                              <div className="font-medium">{asset.vendor}</div>
+                            )}
+                            {asset.model && (
+                              <div className="text-gray-400">{asset.model}</div>
+                            )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {asset.vendor || 'Unknown'}
-                          </div>
-                          {asset.model && (
-                            <div className="text-sm text-gray-500">
-                              {asset.model}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {asset.location || '-'}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {asset.location || '—'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {getStatusBadge(asset.status)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {format(new Date(asset.updated_at), 'MMM d, yyyy')}
-                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex items-center justify-end space-x-2">
-                            <Link
-                              href={`/assets/${asset.id}`}
-                              className="text-indigo-600 hover:text-indigo-900"
-                              title="View details"
-                            >
-                              <EyeIcon className="h-4 w-4" />
-                            </Link>
-                            <button
-                              className="text-indigo-600 hover:text-indigo-900"
-                              title="Edit asset"
-                            >
-                              <PencilIcon className="h-4 w-4" />
-                            </button>
-                            <button
-                              className="text-red-600 hover:text-red-900"
-                              title="Delete asset"
-                            >
-                              <TrashIcon className="h-4 w-4" />
-                            </button>
-                          </div>
+                          <Link
+                            href={`/assets/${asset.id}`}
+                            className="text-indigo-600 hover:text-indigo-900"
+                          >
+                            View
+                          </Link>
                         </td>
                       </tr>
                     )
@@ -316,55 +274,56 @@ export default function WorkingAssetsPage() {
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
 
-        {/* Simple Pagination Info */}
-        {assets.length > 0 && (
-          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 mt-4 rounded-lg shadow">
-            <div className="flex-1 flex justify-between sm:hidden">
-              <button
-                disabled={currentPage === 1}
-                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Next
-              </button>
-            </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">1</span> to{' '}
-                  <span className="font-medium">{assets.length}</span> of{' '}
-                  <span className="font-medium">{totalCount}</span> results
-                </p>
+            {/* Pagination */}
+            <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
+              <div className="flex-1 flex justify-between sm:hidden">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(currentPage - 1)}
+                  className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setCurrentPage(currentPage + 1)}
+                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Next
+                </button>
               </div>
-              <div>
-                <span className="text-sm text-gray-500">
-                  Page {currentPage}
-                </span>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700">
+                    Showing <span className="font-medium">
+                      {((currentPage - 1) * 20) + 1}
+                    </span> to{' '}
+                    <span className="font-medium">
+                      {Math.min(currentPage * 20, totalCount)}
+                    </span> of{' '}
+                    <span className="font-medium">{totalCount}</span> results
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(currentPage - 1)}
+                    className="relative inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-gray-500">
+                    Page {currentPage}
+                  </span>
+                  <button
+                    disabled={assets.length < 20}
+                    onClick={() => setCurrentPage(currentPage + 1)}
+                    className="relative inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Debug info (remove in production) */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="text-sm text-yellow-800">
-              <strong>Debug Info:</strong>
-              <ul className="mt-2 space-y-1">
-                <li>• API URL: {typeof window !== 'undefined' ? `${window.location.origin}/api/assets` : '/api/assets'}</li>
-                <li>• Search term: "{searchTerm}"</li>
-                <li>• Loading: {isLoading.toString()}</li>
-                <li>• Assets found: {assets.length}</li>
-                <li>• Total count: {totalCount}</li>
-                <li>• Error: {error ? error.message : 'None'}</li>
-              </ul>
             </div>
           </div>
         )}

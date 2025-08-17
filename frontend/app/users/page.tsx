@@ -230,22 +230,23 @@ export default function UsersPage() {
     }
   }
 
-  // Filter users based on local search and filters
-  const filteredUsers = useMemo(() => {
-    return users.filter(user => {
-      if (filters.active_only && !user.active) return false
-      if (filters.department && user.department !== filters.department) return false
-      return true
-    })
-  }, [users, filters])
+// Updated filter logic for single department selection
+const filteredUsers = useMemo(() => {
+  return users.filter(user => {
+    if (filters.active_only && !user.active) return false
+    if (filters.department && user.department !== filters.department) return false
+    return true
+  })
+}, [users, filters])
 
-  // Get unique departments for filter
-  const departments = useMemo(() => {
-    const depts = users
-      .map(user => user.department)
-      .filter((dept): dept is string => dept !== null && dept !== undefined && dept !== '')
-    return [...new Set(depts)].sort()
-  }, [users])
+// Get unique departments for filter
+const departments = useMemo(() => {
+  const depts = users
+    .map(user => user.department)
+    .filter((dept): dept is string => dept !== null && dept !== undefined && dept !== '')
+  return Array.from(new Set(depts)).sort()
+}, [users])
+
 
   if (error) {
     return (
