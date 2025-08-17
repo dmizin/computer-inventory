@@ -1,5 +1,5 @@
-// lib/api-client.ts - Enhanced API Client
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+// lib/api-client.ts - Clean Production API Client
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import {
   Asset,
   AssetWithDetails,
@@ -18,31 +18,10 @@ import {
   BulkApplicationAssignment,
   UpsertResponse
 } from './types';
-import { isAuthEnabled } from './auth0-config';
-
-// API Response wrappers
-export interface ApiResponse<T> {
-  data: T;
-  meta?: PaginationMeta;
-}
-
-export interface AssetListResponse {
-  data: Asset[];
-  meta: PaginationMeta;
-}
-
-export interface UserListResponse {
-  data: User[];
-  meta: PaginationMeta;
-}
-
-export interface ApplicationListResponse {
-  data: Application[];
-  meta: PaginationMeta;
-}
 
 // API Client configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || process.env.API_KEY;
 
 class ApiClient {
   private client: AxiosInstance;
@@ -59,22 +38,10 @@ class ApiClient {
     // Request interceptor for authentication
     this.client.interceptors.request.use(
       async (config) => {
-        // Add auth token if enabled
-        if (isAuthEnabled && typeof window !== 'undefined') {
-          try {
-            // Get access token from Auth0
-            const response = await fetch('/api/auth/token');
-            if (response.ok) {
-              const { accessToken } = await response.json();
-              if (accessToken) {
-                config.headers.Authorization = `Bearer ${accessToken}`;
-              }
-            }
-          } catch (error) {
-            console.warn('Failed to get access token:', error);
-          }
+        // Add API key if available
+        if (API_KEY) {
+          config.headers.Authorization = `Bearer ${API_KEY}`;
         }
-
         return config;
       },
       (error) => Promise.reject(error)
@@ -83,11 +50,9 @@ class ApiClient {
     // Response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
-      (error) => {
-        if (error.response?.status === 401 && isAuthEnabled) {
-          // Redirect to login on 401 if auth is enabled
-          window.location.href = '/api/auth/login';
-          return Promise.reject(new Error('Authentication required'));
+      (error: AxiosError) => {
+        if (error.response?.status === 401) {
+          console.error('Authentication failed. Please check your API key configuration.');
         }
         return Promise.reject(error);
       }
@@ -95,7 +60,7 @@ class ApiClient {
   }
 
   // =============================================================================
-  // ASSETS API (Enhanced)
+  // ASSETS API
   // =============================================================================
 
   async getAssets(params: {
@@ -109,10 +74,41 @@ class ApiClient {
     has_applications?: boolean;
     has_notes?: boolean;
     sort_by?: string;
-    sort_order?: 'asc' | 'desc';
-  } = {}): Promise<AssetListResponse> {
-    const response = await this.client.get('/assets', { params });
-    return response.data;
+    sort_order?: string;
+  } = {}): Promise<{data: Asset[], meta: {total: number, page: number, per_page: number, pages: number}}> {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, String(value));
+      }
+    });
+
+    const url = searchParams.toString() ? `/assets?${searchParams.toString()}` : '/assets';
+    const response = await this.client.get(url);
+
+    // Handle different response formats
+    let assets: Asset[];
+    if (Array.isArray(response.data)) {
+      assets = response.data;
+    } else if (response.data && Array.isArray(response.data.data)) {
+      assets = response.data.data;
+    } else if (response.data && response.data.assets) {
+      assets = response.data.assets;
+    } else {
+      assets = [];
+    }
+
+    // Return full response object for pagination support
+    return {
+      data: assets,
+      meta: response.data.meta || {
+        total: assets.length,
+        page: 1,
+        per_page: assets.length,
+        pages: 1
+      }
+    };
   }
 
   async getAsset(id: string): Promise<AssetWithDetails> {
@@ -120,13 +116,13 @@ class ApiClient {
     return response.data;
   }
 
-  async createAsset(data: AssetCreateRequest): Promise<Asset> {
-    const response = await this.client.post('/assets', data);
+  async createAsset(asset: AssetCreateRequest): Promise<Asset> {
+    const response = await this.client.post('/assets', asset);
     return response.data;
   }
 
-  async updateAsset(id: string, data: AssetUpdateRequest): Promise<Asset> {
-    const response = await this.client.patch(`/assets/${id}`, data);
+  async updateAsset(id: string, updates: AssetUpdateRequest): Promise<Asset> {
+    const response = await this.client.patch(`/assets/${id}`, updates);
     return response.data;
   }
 
@@ -134,34 +130,39 @@ class ApiClient {
     await this.client.delete(`/assets/${id}`);
   }
 
-  async upsertAsset(data: AssetCreateRequest): Promise<UpsertResponse> {
-    const response = await this.client.post('/assets/upsert', data);
-    return response.data;
-  }
-
-  // Bulk operations
-  async bulkUpdateAssets(data: BulkAssetUpdate): Promise<{ updated_count: number }> {
-    const response = await this.client.patch('/assets/bulk', data);
-    return response.data;
-  }
-
-  async bulkAssignApplication(data: BulkApplicationAssignment): Promise<{ assigned_count: number }> {
-    const response = await this.client.post('/assets/bulk-assign-application', data);
+  async upsertAsset(asset: AssetCreateRequest): Promise<UpsertResponse> {
+    const response = await this.client.post('/assets/upsert', asset);
     return response.data;
   }
 
   // =============================================================================
-  // USERS API (New)
+  // USERS API
   // =============================================================================
 
   async getUsers(params: {
-    skip?: number;
-    limit?: number;
     search?: string;
+    department?: string;
     active_only?: boolean;
+    limit?: number;
   } = {}): Promise<User[]> {
-    const response = await this.client.get('/users', { params });
-    return response.data;
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, String(value));
+      }
+    });
+
+    const url = searchParams.toString() ? `/users?${searchParams.toString()}` : '/users';
+    const response = await this.client.get(url);
+
+    // Handle different response formats
+    if (Array.isArray(response.data)) {
+      return response.data;
+    } else if (response.data && Array.isArray(response.data.data)) {
+      return response.data.data;
+    }
+    return [];
   }
 
   async getUser(id: string): Promise<User> {
@@ -169,13 +170,13 @@ class ApiClient {
     return response.data;
   }
 
-  async createUser(data: UserCreateRequest): Promise<User> {
-    const response = await this.client.post('/users', data);
+  async createUser(user: UserCreateRequest): Promise<User> {
+    const response = await this.client.post('/users', user);
     return response.data;
   }
 
-  async updateUser(id: string, data: UserUpdateRequest): Promise<User> {
-    const response = await this.client.patch(`/users/${id}`, data);
+  async updateUser(id: string, updates: UserUpdateRequest): Promise<User> {
+    const response = await this.client.patch(`/users/${id}`, updates);
     return response.data;
   }
 
@@ -183,29 +184,40 @@ class ApiClient {
     await this.client.delete(`/users/${id}`);
   }
 
-  async getUserAssets(userId: string, params: {
-    skip?: number;
-    limit?: number;
-  } = {}): Promise<Asset[]> {
-    const response = await this.client.get(`/users/${userId}/assets`, { params });
-    return response.data;
-  }
-
   // =============================================================================
-  // APPLICATIONS API (New)
+  // APPLICATIONS API
   // =============================================================================
 
   async getApplications(params: {
-    skip?: number;
-    limit?: number;
     search?: string;
-    environment?: string;
-    status?: string;
-    criticality?: string;
+    environment?: string[];
+    status?: string[];
+    criticality?: string[];
     has_assets?: boolean;
+    limit?: number;
   } = {}): Promise<Application[]> {
-    const response = await this.client.get('/applications', { params });
-    return response.data;
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        if (Array.isArray(value)) {
+          value.forEach(v => searchParams.append(key, String(v)));
+        } else {
+          searchParams.append(key, String(value));
+        }
+      }
+    });
+
+    const url = searchParams.toString() ? `/applications?${searchParams.toString()}` : '/applications';
+    const response = await this.client.get(url);
+
+    // Handle different response formats
+    if (Array.isArray(response.data)) {
+      return response.data;
+    } else if (response.data && Array.isArray(response.data.data)) {
+      return response.data.data;
+    }
+    return [];
   }
 
   async getApplication(id: string): Promise<ApplicationWithAssets> {
@@ -213,13 +225,13 @@ class ApiClient {
     return response.data;
   }
 
-  async createApplication(data: ApplicationCreateRequest): Promise<Application> {
-    const response = await this.client.post('/applications', data);
+  async createApplication(application: ApplicationCreateRequest): Promise<Application> {
+    const response = await this.client.post('/applications', application);
     return response.data;
   }
 
-  async updateApplication(id: string, data: ApplicationUpdateRequest): Promise<Application> {
-    const response = await this.client.patch(`/applications/${id}`, data);
+  async updateApplication(id: string, updates: ApplicationUpdateRequest): Promise<Application> {
+    const response = await this.client.patch(`/applications/${id}`, updates);
     return response.data;
   }
 
@@ -227,72 +239,68 @@ class ApiClient {
     await this.client.delete(`/applications/${id}`);
   }
 
-  // Application-Asset associations
-  async addAssetToApplication(applicationId: string, assetId: string): Promise<void> {
-    await this.client.post(`/applications/${applicationId}/assets/${assetId}`);
-  }
-
-  async removeAssetFromApplication(applicationId: string, assetId: string): Promise<void> {
-    await this.client.delete(`/applications/${applicationId}/assets/${assetId}`);
-  }
-
   // =============================================================================
-  // MANAGEMENT CONTROLLERS API (Unchanged)
+  // MANAGEMENT CONTROLLERS API
   // =============================================================================
 
-  async getAssetControllers(assetId: string): Promise<ManagementController[]> {
+  async getManagementControllers(assetId: string): Promise<ManagementController[]> {
     const response = await this.client.get(`/assets/${assetId}/mgmt`);
-    return response.data;
+    return Array.isArray(response.data) ? response.data : response.data.data || [];
   }
 
-  async addController(assetId: string, data: {
+  async createManagementController(assetId: string, controller: {
     type: string;
     address: string;
     port?: number;
     ui_url?: string;
     credential_env_key?: string;
   }): Promise<ManagementController> {
-    const response = await this.client.post(`/assets/${assetId}/mgmt`, data);
+    const response = await this.client.post(`/assets/${assetId}/mgmt`, controller);
     return response.data;
   }
 
-  async deleteController(controllerId: string): Promise<void> {
+  async deleteManagementController(controllerId: string): Promise<void> {
     await this.client.delete(`/mgmt/${controllerId}`);
   }
 
   // =============================================================================
-  // UTILITY METHODS
+  // BULK OPERATIONS API
   // =============================================================================
 
-  async healthCheck(): Promise<{ status: string; version: string }> {
-    const response = await this.client.get('/health');
+  async bulkUpdateAssets(updates: BulkAssetUpdate): Promise<Asset[]> {
+    const response = await this.client.patch('/assets/bulk', updates);
     return response.data;
   }
 
-  async getOpenApiSchema(): Promise<any> {
-    const response = await this.client.get('/openapi.json');
+  async bulkAssignApplications(assignment: BulkApplicationAssignment): Promise<void> {
+    await this.client.post('/assets/bulk/applications', assignment);
+  }
+
+  // =============================================================================
+  // HEALTH CHECK
+  // =============================================================================
+
+  async healthCheck(): Promise<{ status: string; timestamp: string; version?: string; database?: string }> {
+    const response = await this.client.get('/health');
     return response.data;
   }
 }
 
-// Create and export singleton instance
+// Create and export a singleton instance
 export const apiClient = new ApiClient();
 
-// SWR configuration for consistent data fetching
-export const swrConfig = {
-  revalidateOnFocus: false,
-  revalidateOnReconnect: true,
-  shouldRetryOnError: false,
-  errorRetryCount: 2,
-  errorRetryInterval: 5000,
-  dedupingInterval: 5000,
-};
-
-// Helper function for SWR key generation
-export const generateSWRKey = (endpoint: string, params?: Record<string, any>) => {
-  if (!params) return [endpoint];
-  return [endpoint, JSON.stringify(params)];
-};
-
-// Export everything
+// For compatibility
 export default apiClient;
+
+// SWR configuration for consistent error handling
+export const swrConfig = {
+  errorRetryCount: 3,
+  errorRetryInterval: 1000,
+  dedupingInterval: 5000,
+  focusThrottleInterval: 10000,
+  onError: (error: any) => {
+    if (error?.response?.status === 401) {
+      console.error('Authentication error. Please check your API key configuration.');
+    }
+  },
+};
